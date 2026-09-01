@@ -1,0 +1,164 @@
+:root {
+  /* Color: calm, high-contrast, unambiguous. Teal = accessible/verified,
+     coral = warning/unverified, never color alone (always paired with icon/text). */
+  --color-bg: #F7F5F0;
+  --color-surface: #FFFFFF;
+  --color-border: #DAD6CB;
+  --color-text: #262622;
+  --color-text-muted: #5B584F;
+
+  --color-primary: #0F6E56;
+  --color-primary-dark: #085041;
+  --color-primary-light: #E1F5EE;
+
+  --color-warn: #99521D;
+  --color-warn-light: #FAECE2;
+
+  --color-danger: #99231D;
+  --color-danger-light: #FBE9E7;
+
+  --font-body: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(38, 38, 34, 0.08), 0 1px 2px rgba(38, 38, 34, 0.06);
+
+  --focus-ring: 3px solid #1D6FE0;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0 0 0.5em;
+}
+h1 { font-size: 1.9rem; }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.15rem; }
+
+p { margin: 0 0 1em; }
+
+a { color: var(--color-primary-dark); }
+
+/* Visible focus ring everywhere — non-negotiable for an accessibility product */
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.65em 1.2em;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--color-primary-dark); }
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1.5px solid var(--color-border);
+}
+.btn-secondary:hover { border-color: var(--color-primary); }
+
+.btn-link {
+  background: transparent;
+  color: var(--color-primary-dark);
+  padding: 0.3em 0.4em;
+  text-decoration: underline;
+}
+
+input, select, textarea {
+  border: 1.5px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.6em 0.8em;
+  width: 100%;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.3em;
+  font-size: 0.95rem;
+}
+
+.field { margin-bottom: 1.1em; }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.2em 1.4em;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Accessibility confidence badge — the app's signature recurring element.
+   Always pairs color with a text label; never color-only signaling. */
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.3em 0.7em;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.confidence-badge.high { background: var(--color-primary-light); color: var(--color-primary-dark); }
+.confidence-badge.medium { background: var(--color-warn-light); color: var(--color-warn); }
+.confidence-badge.low { background: var(--color-danger-light); color: var(--color-danger); }
+.confidence-badge .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor;
+}
+
+.error-text { color: var(--color-danger); font-size: 0.9rem; margin-top: 0.3em; }
+.muted { color: var(--color-text-muted); }
+
+@media (max-width: 640px) {
+  .container { padding: 0 1rem; }
+  h1 { font-size: 1.5rem; }
+}
