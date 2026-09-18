@@ -267,3 +267,125 @@ class ImageMetaSerializer(serializers.ModelSerializer):
         ]
 
 
+# ---------------------------------------------------------------------------
+# Admin serializers (IsAdminUser only — writable fields the public API hides)
+# ---------------------------------------------------------------------------
+
+from .models import (
+    VenueOwnerProfile, AccessibilityProfile, UserAccessibilityProfile,
+    FacilityType, SystemConfig, AttributeVerification, PlaceCategory,
+)
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Full user record editable by admins."""
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "first_name", "last_name",
+            "user_type", "reputation_score", "is_verified_email",
+            "is_active", "is_staff", "is_superuser",
+            "date_joined", "last_login", "last_active_at",
+        ]
+        read_only_fields = ["id", "date_joined", "last_login"]
+
+
+class AdminVenueOwnerProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.CharField(source="user.email", read_only=True)
+
+    class Meta:
+        model = VenueOwnerProfile
+        fields = [
+            "id", "user", "username", "email",
+            "business_name", "approval_status",
+            "reviewed_by", "reviewed_at",
+        ]
+        read_only_fields = ["id", "user", "username", "email", "reviewed_at"]
+
+
+class AdminPlaceSerializer(serializers.ModelSerializer):
+    primary_location = PointField()
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    added_by_username = serializers.CharField(source="added_by.username", read_only=True)
+
+    class Meta:
+        model = Place
+        fields = [
+            "id", "name", "category", "category_name", "primary_location",
+            "description", "address", "city",
+            "added_by", "added_by_username", "claimed_by_venue",
+            "overall_accessibility_score", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "added_by", "added_by_username", "created_at", "updated_at"]
+
+
+class AdminImageSerializer(serializers.ModelSerializer):
+    uploaded_by_username = serializers.CharField(source="uploaded_by.username", read_only=True)
+
+    class Meta:
+        model = Image
+        fields = [
+            "id", "entity_type", "entity_id", "caption", "alt_text",
+            "uploaded_by", "uploaded_by_username", "uploaded_at",
+            "verification_status", "flagged_reason",
+            "content_type", "file_size_bytes",
+        ]
+        read_only_fields = ["id", "uploaded_by", "uploaded_by_username", "uploaded_at",
+                             "content_type", "file_size_bytes"]
+
+
+class AdminSystemConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemConfig
+        fields = ["id", "config_key", "config_value", "description"]
+        read_only_fields = ["id"]
+
+
+class AdminAccessibilityProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccessibilityProfile
+        fields = ["id", "code", "label"]
+
+
+class AdminPlaceCategorySerializer(serializers.ModelSerializer):
+    place_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlaceCategory
+        fields = ["id", "name", "place_count"]
+
+    def get_place_count(self, obj):
+        return obj.places.count()
+
+
+class AdminFacilityTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FacilityType
+        fields = ["id", "name"]
+
+
+class AdminAttributeDefinitionSerializer(serializers.ModelSerializer):
+    facility_type_name = serializers.CharField(source="facility_type.name", read_only=True)
+
+    class Meta:
+        model = AttributeDefinition
+        fields = [
+            "id", "applies_to", "facility_type", "facility_type_name",
+            "name", "data_type", "unit", "choice_options", "is_required",
+        ]
+
+
+class AdminAttributeVerificationSerializer(serializers.ModelSerializer):
+    verified_by_username = serializers.CharField(source="verified_by.username", read_only=True)
+
+    class Meta:
+        model = AttributeVerification
+        fields = [
+            "id", "attribute_row_id", "attribute_table",
+            "verified_by", "verified_by_username",
+            "action", "comment", "created_at",
+        ]
+        read_only_fields = ["id", "attribute_row_id", "attribute_table",
+                             "verified_by", "verified_by_username", "action",
+                             "comment", "created_at"]

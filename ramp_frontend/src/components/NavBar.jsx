@@ -34,6 +34,23 @@ export default function NavBar() {
         <div style={{ display: "flex", alignItems: "center", gap: "0.9rem" }}>
           {!isHome && <Link to="/" className="btn-link" style={{ textDecoration: "none" }}>Home</Link>}
           <Link to="/places" className="btn-link" style={{ textDecoration: "none" }}>Explore places</Link>
+          {user && (user.is_staff || user.user_type === "admin") && (
+            <Link
+              to="/admin"
+              className="btn-link"
+              style={{
+                textDecoration: "none",
+                background: "var(--color-primary-light)",
+                color: "var(--color-primary-dark)",
+                padding: "0.35em 0.8em",
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: "0.875rem",
+              }}
+            >
+              ⚙ Admin
+            </Link>
+          )}
           {user ? (
             <>
               <span className="muted" style={{ fontSize: "0.9rem" }}>Hi, {user.username}</span>

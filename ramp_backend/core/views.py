@@ -323,3 +323,178 @@ class ImageThumbView(APIView):
         return HttpResponse(data, content_type=image.content_type)
 
 
+# ---------------------------------------------------------------------------
+# Admin views (IsAdminUser — requires is_staff=True)
+# ---------------------------------------------------------------------------
+
+from .models import (
+    AccessibilityProfile, FacilityType, PlaceCategory,
+    SystemConfig, AttributeVerification, VenueOwnerProfile,
+)
+from .serializers import (
+    AdminUserSerializer, AdminVenueOwnerProfileSerializer,
+    AdminPlaceSerializer, AdminImageSerializer, AdminSystemConfigSerializer,
+    AdminAccessibilityProfileSerializer, AdminPlaceCategorySerializer,
+    AdminFacilityTypeSerializer, AdminAttributeDefinitionSerializer,
+    AdminAttributeVerificationSerializer,
+)
+
+
+class AdminStatsView(APIView):
+    """GET /api/admin/stats/ – dashboard counters."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        from django.utils import timezone as tz
+        from datetime import timedelta
+        recent_cutoff = tz.now() - timedelta(days=7)
+        return Response({
+            "users_total": User.objects.count(),
+            "users_recent": User.objects.filter(date_joined__gte=recent_cutoff).count(),
+            "places_total": Place.objects.count(),
+            "venues_pending": VenueOwnerProfile.objects.filter(approval_status="pending").count(),
+            "images_pending": Image.objects.filter(verification_status="pending").count(),
+            "images_flagged": Image.objects.filter(verification_status="flagged").count(),
+            "attributes_pending": (
+                AccessPointAttribute.objects.filter(verification_status="pending").count() +
+                FacilityAttribute.objects.filter(verification_status="pending").count()
+            ),
+        })
+
+
+class AdminUserViewSet(viewsets.ModelViewSet):
+    """Full CRUD on users for admins."""
+    serializer_class = AdminUserSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["user_type", "is_active", "is_staff"]
+
+    def get_queryset(self):
+        qs = User.objects.all().order_by("-date_joined")
+        q = self.request.query_params.get("q")
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(Q(username__icontains=q) | Q(email__icontains=q))
+        return qs
+
+
+class AdminVenueOwnerViewSet(viewsets.ModelViewSet):
+    """Approve / reject venue owner profiles."""
+    serializer_class = AdminVenueOwnerProfileSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["approval_status"]
+
+    def get_queryset(self):
+        return VenueOwnerProfile.objects.select_related("user").order_by("-id")
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        profile = self.get_object()
+        profile.approval_status = "approved"
+        profile.reviewed_by = request.user
+        from django.utils import timezone as tz
+        profile.reviewed_at = tz.now()
+        profile.save()
+        return Response(self.get_serializer(profile).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        profile = self.get_object()
+        profile.approval_status = "rejected"
+        profile.reviewed_by = request.user
+        from django.utils import timezone as tz
+        profile.reviewed_at = tz.now()
+        profile.save()
+        return Response(self.get_serializer(profile).data)
+
+
+class AdminPlaceViewSet(viewsets.ModelViewSet):
+    """Full CRUD on places for admins."""
+    serializer_class = AdminPlaceSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["category", "city"]
+
+    def get_queryset(self):
+        qs = Place.objects.select_related("category", "added_by").order_by("-created_at")
+        q = self.request.query_params.get("q")
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=q) | Q(city__icontains=q))
+        return qs
+
+
+class AdminPlaceCategoryViewSet(viewsets.ModelViewSet):
+    serializer_class = AdminPlaceCategorySerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = PlaceCategory.objects.all().order_by("name")
+
+
+class AdminFacilityTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = AdminFacilityTypeSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = FacilityType.objects.all().order_by("name")
+
+
+class AdminAccessibilityProfileViewSet(viewsets.ModelViewSet):
+    serializer_class = AdminAccessibilityProfileSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = AccessibilityProfile.objects.all().order_by("label")
+
+
+class AdminAttributeDefinitionViewSet(viewsets.ModelViewSet):
+    serializer_class = AdminAttributeDefinitionSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["applies_to", "facility_type"]
+    queryset = AttributeDefinition.objects.select_related("facility_type").order_by("name")
+
+
+class AdminAttributeVerificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only audit log of attribute verifications."""
+    serializer_class = AdminAttributeVerificationSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["attribute_table", "action"]
+    queryset = AttributeVerification.objects.select_related("verified_by").order_by("-created_at")
+
+
+class AdminImageViewSet(viewsets.ModelViewSet):
+    """Image moderation: list, update status, delete."""
+    serializer_class = AdminImageSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["entity_type", "verification_status"]
+
+    def get_queryset(self):
+        return Image.objects.select_related("uploaded_by").order_by("-uploaded_at")
+
+    @action(detail=True, methods=["post"])
+    def verify(self, request, pk=None):
+        image = self.get_object()
+        image.verification_status = "verified"
+        image.save()
+        return Response(self.get_serializer(image).data)
+
+    @action(detail=True, methods=["post"])
+    def flag(self, request, pk=None):
+        image = self.get_object()
+        image.verification_status = "flagged"
+        image.flagged_reason = request.data.get("reason", "")
+        image.save()
+        return Response(self.get_serializer(image).data)
+
+    @action(detail=True, methods=["post"])
+    def remove(self, request, pk=None):
+        image = self.get_object()
+        image.verification_status = "removed"
+        image.save()
+        return Response(self.get_serializer(image).data)
+
+
+class AdminSystemConfigViewSet(viewsets.ModelViewSet):
+    """Edit key/value system configuration entries."""
+    serializer_class = AdminSystemConfigSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = SystemConfig.objects.all().order_by("config_key")

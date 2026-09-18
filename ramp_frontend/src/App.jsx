@@ -7,6 +7,7 @@ import PlaceDetail from "./pages/PlaceDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AddPlace from "./pages/AddPlace";
+import Admin from "./pages/Admin";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/places/:id" element={<PlaceDetail />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

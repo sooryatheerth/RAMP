@@ -26,6 +26,19 @@ facilities_router.register(
     "attributes", views.FacilityAttributeViewSet, basename="facility-attributes"
 )
 
+# /api/admin/* — staff-only management endpoints
+admin_router = routers.DefaultRouter()
+admin_router.register("users", views.AdminUserViewSet, basename="admin-user")
+admin_router.register("venues", views.AdminVenueOwnerViewSet, basename="admin-venue")
+admin_router.register("places", views.AdminPlaceViewSet, basename="admin-place")
+admin_router.register("place-categories", views.AdminPlaceCategoryViewSet, basename="admin-place-category")
+admin_router.register("facility-types", views.AdminFacilityTypeViewSet, basename="admin-facility-type")
+admin_router.register("accessibility-profiles", views.AdminAccessibilityProfileViewSet, basename="admin-accessibility-profile")
+admin_router.register("attribute-definitions", views.AdminAttributeDefinitionViewSet, basename="admin-attribute-definition")
+admin_router.register("attribute-verifications", views.AdminAttributeVerificationViewSet, basename="admin-attribute-verification")
+admin_router.register("images", views.AdminImageViewSet, basename="admin-image")
+admin_router.register("system-config", views.AdminSystemConfigViewSet, basename="admin-system-config")
+
 urlpatterns = [
     path("auth/register/", views.RegisterView.as_view(), name="register"),
     path("auth/login/", views.LoginView.as_view(), name="login"),
@@ -43,4 +56,8 @@ urlpatterns = [
     path("", include(places_router.urls)),
     path("", include(access_points_router.urls)),
     path("", include(facilities_router.urls)),
+
+    # Admin endpoints
+    path("admin/stats/", views.AdminStatsView.as_view(), name="admin-stats"),
+    path("admin/", include(admin_router.urls)),
 ]
