@@ -6,8 +6,7 @@ from rest_framework import serializers
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
     AttributeDefinition, Facility, FacilityAttribute, FacilityType,
-    FloorPlan, Image, Place, PlaceCategory, User, UserAccessibilityProfile,
-    VerticalConnection, Waypoint, WaypointEdge,
+    Image, Place, PlaceCategory, User, UserAccessibilityProfile,
 )
 
 
@@ -268,103 +267,3 @@ class ImageMetaSerializer(serializers.ModelSerializer):
         ]
 
 
-# ---------------------------------------------------------------------------
-# Indoor Navigation
-# ---------------------------------------------------------------------------
-
-class FloorPlanUploadSerializer(serializers.ModelSerializer):
-    """Accepts a multipart floor plan image upload."""
-    file = serializers.ImageField(write_only=True)
-
-    class Meta:
-        model = FloorPlan
-        fields = ["id", "place", "floor_level", "file", "width_px", "height_px", "uploaded_by", "uploaded_at"]
-        read_only_fields = ["place", "width_px", "height_px", "uploaded_by", "uploaded_at"]
-
-    def create(self, validated_data):
-        from PIL import Image as PILImage
-        import io
-
-        file_obj = validated_data.pop("file")
-        image_bytes = file_obj.read()
-        pil_img = PILImage.open(io.BytesIO(image_bytes))
-        width, height = pil_img.size
-
-        return FloorPlan.objects.create(
-            place_id=self.context["place_id"],
-            floor_level=validated_data["floor_level"],
-            image_data=image_bytes,
-            content_type=file_obj.content_type,
-            width_px=width,
-            height_px=height,
-            uploaded_by=self.context["request"].user,
-        )
-
-
-class FloorPlanMetaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FloorPlan
-        fields = ["id", "place", "floor_level", "width_px", "height_px", "uploaded_by", "uploaded_at"]
-
-
-class WaypointSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Waypoint
-        fields = [
-            "id", "floor_plan", "label", "waypoint_type", "x", "y",
-            "linked_facility", "linked_access_point", "qr_code_value",
-        ]
-        read_only_fields = ["floor_plan"]
-
-
-class WaypointEdgeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = WaypointEdge
-        fields = [
-            "id", "floor_plan", "from_waypoint", "to_waypoint",
-            "distance_meters", "path_type", "is_accessible", "notes",
-        ]
-        read_only_fields = ["floor_plan"]
-
-
-class VerticalConnectionSerializer(serializers.ModelSerializer):
-    from_waypoint_label = serializers.CharField(source="from_waypoint.label", read_only=True)
-    to_waypoint_label = serializers.CharField(source="to_waypoint.label", read_only=True)
-
-    class Meta:
-        model = VerticalConnection
-        fields = [
-            "id", "place", "from_waypoint", "from_waypoint_label",
-            "to_waypoint", "to_waypoint_label", "connection_type",
-            "distance_meters", "is_accessible", "notes",
-        ]
-        read_only_fields = ["place"]
-
-
-class PlaceRouteRequestSerializer(serializers.Serializer):
-    """Input for the place-wide (multi-floor) route-finding endpoint."""
-    from_waypoint = serializers.IntegerField()
-    to_waypoint = serializers.IntegerField()
-    require_accessible = serializers.BooleanField(default=True)
-
-
-class RouteRequestSerializer(serializers.Serializer):
-    """Input for the indoor route-finding endpoint."""
-    from_waypoint = serializers.IntegerField()
-    to_waypoint = serializers.IntegerField()
-    require_accessible = serializers.BooleanField(default=True)
-
-
-class WaypointScanResultSerializer(serializers.ModelSerializer):
-    """Returned when a QR checkpoint is scanned - includes floor plan context
-    so the frontend can jump straight to the right floor plan viewer."""
-    floor_plan_id = serializers.IntegerField(source="floor_plan.id", read_only=True)
-    place_id = serializers.IntegerField(source="floor_plan.place_id", read_only=True)
-    floor_level = serializers.CharField(source="floor_plan.floor_level", read_only=True)
-
-    class Meta:
-        model = Waypoint
-        fields = [
-            "id", "label", "waypoint_type", "x", "y",
-            "floor_plan_id", "place_id", "floor_level",
-        ]

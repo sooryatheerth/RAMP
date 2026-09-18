@@ -11,19 +11,16 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
     AccessPoint, AccessPointAttribute, AttributeDefinition,
-    AttributeVerification, Facility, FacilityAttribute, FloorPlan, Image,
-    Place, PlaceCategory, User, VerificationStatus, VerticalConnection,
-    Waypoint, WaypointEdge,
+    AttributeVerification, Facility, FacilityAttribute, Image,
+    Place, PlaceCategory, User, VerificationStatus,
 )
 from .permissions import CanVerifySubmissions, IsOwnerOrReadOnly
 from .serializers import (
     AccessPointAttributeSerializer, AccessPointSerializer,
     AttributeDefinitionSerializer, FacilityAttributeSerializer,
-    FacilitySerializer, FloorPlanMetaSerializer, FloorPlanUploadSerializer,
-    ImageMetaSerializer, ImageUploadSerializer, PlaceCategorySerializer,
-    PlaceDetailSerializer, PlaceListSerializer, PlaceRouteRequestSerializer,
-    RegisterSerializer, UserSerializer, VerticalConnectionSerializer,
-    WaypointEdgeSerializer, WaypointScanResultSerializer, WaypointSerializer,
+    FacilitySerializer, ImageMetaSerializer, ImageUploadSerializer,
+    PlaceCategorySerializer, PlaceDetailSerializer, PlaceListSerializer,
+    RegisterSerializer, UserSerializer,
 )
 
 
@@ -99,6 +96,33 @@ class PlaceViewSet(viewsets.ModelViewSet):
             "access_points_total": total,
             "access_points_accessible": accessible,
         })
+
+
+class NearbyPlacesView(APIView):
+    """
+    GET /api/places/nearby/?lat=X&lng=Y&radius=50
+    Returns places within `radius` metres of the given point.
+    Used before submission to detect duplicate buildings so contributors
+    can add facilities to an existing place instead of creating a duplicate.
+    radius defaults to 50 m (same campus block).
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        try:
+            lat = float(request.query_params["lat"])
+            lng = float(request.query_params["lng"])
+        except (KeyError, ValueError, TypeError):
+            return Response(
+                {"detail": "lat and lng query parameters are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        radius_m = float(request.query_params.get("radius", 50))
+        point = Point(lng, lat, srid=4326)
+        places = Place.objects.select_related("category").filter(
+            primary_location__distance_lte=(point, D(m=radius_m))
+        )
+        return Response(PlaceListSerializer(places, many=True).data)
 
 
 # ---------------------------------------------------------------------------
@@ -299,224 +323,3 @@ class ImageThumbView(APIView):
         return HttpResponse(data, content_type=image.content_type)
 
 
-# ---------------------------------------------------------------------------
-# Indoor Navigation
-# ---------------------------------------------------------------------------
-
-class FloorPlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get_queryset(self):
-        qs = FloorPlan.objects.all()
-        place_id = self.kwargs.get("place_pk")
-        if place_id:
-            qs = qs.filter(place_id=place_id)
-        return qs
-
-    def get_serializer_class(self):
-        return FloorPlanUploadSerializer if self.action == "create" else FloorPlanMetaSerializer
-
-    def get_serializer_context(self):
-        ctx = super().get_serializer_context()
-        ctx["place_id"] = self.kwargs.get("place_pk")
-        return ctx
-
-
-class FloorPlanFileView(APIView):
-    """Streams the floor plan image binary."""
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request, pk):
-        floor_plan = FloorPlan.objects.get(pk=pk)
-        return HttpResponse(bytes(floor_plan.image_data), content_type=floor_plan.content_type)
-
-
-class WaypointViewSet(viewsets.ModelViewSet):
-    serializer_class = WaypointSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get_queryset(self):
-        return Waypoint.objects.filter(floor_plan_id=self.kwargs["floor_plan_pk"])
-
-    def perform_create(self, serializer):
-        serializer.save(floor_plan_id=self.kwargs["floor_plan_pk"])
-
-
-class WaypointEdgeViewSet(viewsets.ModelViewSet):
-    serializer_class = WaypointEdgeSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get_queryset(self):
-        return WaypointEdge.objects.filter(floor_plan_id=self.kwargs["floor_plan_pk"])
-
-    def perform_create(self, serializer):
-        serializer.save(floor_plan_id=self.kwargs["floor_plan_pk"])
-
-
-class WaypointScanView(APIView):
-    """
-    Checkpoint-based position tracking (Option A): looks up a waypoint by its
-    QR code value and returns enough context (floor plan, place) for the
-    frontend to set it as the user's "you are here" position. Also usable
-    for manual tap-to-set, since the frontend already has waypoint ids from
-    the floor plan viewer and can call the regular waypoint detail endpoint -
-    this one specifically supports the "scan a physical QR sticker" flow.
-    """
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request, qr_code_value):
-        try:
-            waypoint = Waypoint.objects.select_related("floor_plan").get(
-                qr_code_value=qr_code_value
-            )
-        except Waypoint.DoesNotExist:
-            return Response(
-                {"detail": "No waypoint matches this QR code."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        return Response(WaypointScanResultSerializer(waypoint).data)
-
-
-class VerticalConnectionViewSet(viewsets.ModelViewSet):
-    """Links waypoints across floors (e.g. Ground Floor Lift <-> First Floor Lift)."""
-    serializer_class = VerticalConnectionSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get_queryset(self):
-        return VerticalConnection.objects.filter(place_id=self.kwargs["place_pk"])
-
-    def perform_create(self, serializer):
-        serializer.save(place_id=self.kwargs["place_pk"])
-
-
-class PlaceRouteView(APIView):
-    """
-    Computes an accessible path between two waypoints ANYWHERE within a
-    place - possibly on different floors. Combines WaypointEdges (walking
-    within a floor) and VerticalConnections (moving between floors, via a
-    lift or staircase) into one graph before running Dijkstra, so a route
-    like "Ground Floor entrance -> First Floor library" works in a single
-    call instead of the frontend having to stitch together several
-    single-floor routes itself.
-
-    Uses the same "soft filter" philosophy as the street-level routing
-    module: a route is always returned if the graph is connected at all -
-    non-accessible edges (stairs) are heavily penalized rather than excluded
-    outright, and any such edges used are flagged in the response so the
-    user can decide, rather than the app silently refusing to route them.
-    """
-    permission_classes = [permissions.AllowAny]
-
-    # How much more "expensive" a non-accessible edge is treated as, when
-    # require_accessible=True. High enough that any accessible detour is
-    # preferred, but finite so a route is still found if it's the only path.
-    INACCESSIBLE_PENALTY_MULTIPLIER = 25
-
-    def post(self, request, place_pk, **kwargs):
-        serializer = PlaceRouteRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        graph = {}
-
-        # Within-floor edges
-        floor_edges = WaypointEdge.objects.filter(floor_plan__place_id=place_pk)
-        for edge in floor_edges:
-            weight = float(edge.distance_meters)
-            if data["require_accessible"] and not edge.is_accessible:
-                weight *= self.INACCESSIBLE_PENALTY_MULTIPLIER
-            graph.setdefault(edge.from_waypoint_id, []).append((edge.to_waypoint_id, weight, edge, "floor"))
-            graph.setdefault(edge.to_waypoint_id, []).append((edge.from_waypoint_id, weight, edge, "floor"))
-
-        # Between-floor connections (lift/stairs)
-        vertical_edges = VerticalConnection.objects.filter(place_id=place_pk)
-        for edge in vertical_edges:
-            weight = float(edge.distance_meters)
-            if data["require_accessible"] and not edge.is_accessible:
-                weight *= self.INACCESSIBLE_PENALTY_MULTIPLIER
-            graph.setdefault(edge.from_waypoint_id, []).append((edge.to_waypoint_id, weight, edge, "vertical"))
-            graph.setdefault(edge.to_waypoint_id, []).append((edge.from_waypoint_id, weight, edge, "vertical"))
-
-        path_waypoint_ids, path_edges, total_distance = self._dijkstra(
-            graph, data["from_waypoint"], data["to_waypoint"]
-        )
-
-        if path_waypoint_ids is None:
-            return Response(
-                {"detail": "No path found between these waypoints in this place."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        warnings = []
-        for edge, edge_kind in path_edges:
-            if not edge.is_accessible:
-                if edge_kind == "floor":
-                    label = edge.get_path_type_display()
-                else:
-                    label = edge.get_connection_type_display()
-                warnings.append({
-                    "edge_id": edge.id,
-                    "edge_kind": edge_kind,
-                    "from": edge.from_waypoint.label,
-                    "to": edge.to_waypoint.label,
-                    "issue": f"This segment is not marked accessible ({label}).",
-                })
-
-        waypoints = Waypoint.objects.filter(id__in=path_waypoint_ids)
-        waypoints_by_id = {w.id: w for w in waypoints}
-        ordered_waypoints = [waypoints_by_id[wid] for wid in path_waypoint_ids]
-
-        confidence = 100 if not warnings else max(0, 100 - len(warnings) * 30)
-
-        return Response({
-            "path": WaypointSerializer(ordered_waypoints, many=True).data,
-            "total_distance_meters": round(sum(float(e.distance_meters) for e, _ in path_edges), 2),
-            "warnings": warnings,
-            "accessibility_confidence_score": confidence,
-            "crosses_floors": len({w.floor_plan_id for w in ordered_waypoints}) > 1,
-        })
-
-    @staticmethod
-    def _dijkstra(graph, start_id, end_id):
-        """Standard Dijkstra over the in-memory adjacency dict built above."""
-        import heapq
-
-        if start_id not in graph or end_id not in graph:
-            return None, None, None
-
-        distances = {start_id: 0}
-        previous = {}
-        previous_edge = {}
-        visited = set()
-        queue = [(0, start_id)]
-
-        while queue:
-            dist, node = heapq.heappop(queue)
-            if node in visited:
-                continue
-            visited.add(node)
-            if node == end_id:
-                break
-            for neighbor, weight, edge, edge_kind in graph.get(node, []):
-                new_dist = dist + weight
-                if neighbor not in distances or new_dist < distances[neighbor]:
-                    distances[neighbor] = new_dist
-                    previous[neighbor] = node
-                    previous_edge[neighbor] = (edge, edge_kind)
-                    heapq.heappush(queue, (new_dist, neighbor))
-
-        if end_id not in previous and end_id != start_id:
-            return None, None, None
-
-        # Reconstruct path from end back to start
-        path_ids = [end_id]
-        path_edges = []
-        current = end_id
-        while current != start_id:
-            path_edges.append(previous_edge[current])
-            current = previous[current]
-            path_ids.append(current)
-        path_ids.reverse()
-        path_edges.reverse()
-
-        return path_ids, path_edges, distances[end_id]

@@ -7,7 +7,6 @@ import PlaceDetail from "./pages/PlaceDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AddPlace from "./pages/AddPlace";
-import IndoorNav from "./pages/IndoorNav";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -24,7 +23,6 @@ export default function App() {
         <Route path="/places" element={<PlacesList />} />
         <Route path="/places/new" element={<RequireAuth><AddPlace /></RequireAuth>} />
         <Route path="/places/:id" element={<PlaceDetail />} />
-        <Route path="/places/:id/navigate" element={<IndoorNav />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -13,18 +13,15 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
 
 class CanVerifySubmissions(permissions.BasePermission):
     """
-    Gate verification actions behind a minimum reputation score, so brand-new
-    or low-trust accounts can't rubber-stamp submissions.
+    Any authenticated user can confirm, dispute, or reject attribute values.
+    The crowdsourced threshold (2 confirmations → 'verified') in views.py acts
+    as the quality gate instead of a reputation score requirement.
+    Staff/admins always pass through.
     """
-    MIN_REPUTATION_TO_VERIFY = 10
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        return (
-            request.user.is_staff
-            or request.user.reputation_score >= self.MIN_REPUTATION_TO_VERIFY
-        )
+        return bool(request.user and request.user.is_authenticated)
+
 
 
 class IsApprovedVenueOwner(permissions.BasePermission):

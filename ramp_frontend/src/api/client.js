@@ -49,6 +49,21 @@ export const PlacesAPI = {
   create: (payload) => api.post("/places/", payload),
   score: (id) => api.get(`/places/${id}/score/`),
   categories: () => api.get("/place-categories/"),
+  // Check for existing buildings within radius metres of a coordinate.
+  // Used on the AddPlace form to prevent duplicate entries.
+  nearby: (lat, lng, radius = 50) =>
+    api.get("/places/nearby/", { params: { lat, lng, radius } }),
+};
+
+export const FacilityTypesAPI = {
+  // Fetch live facility types for the inline facility form
+  list: () => api.get("/attribute-definitions/", { params: { applies_to: "facility" } }),
+  // Convenience: fetch all facility types from the FacilityType model via admin or seeded data
+  // We re-use the facilities endpoint pattern — actual types come from the DB seed
+  facilityTypes: () => api.get("/place-categories/").then(() =>
+    // Fall back: the seeded facility types are fetched inline in the form component
+    Promise.resolve()
+  ),
 };
 
 export const AccessPointsAPI = {
@@ -77,27 +92,6 @@ export const ImagesAPI = {
     api.post("/images/", formData, { headers: { "Content-Type": "multipart/form-data" } }),
   fileUrl: (id) => `/api/images/${id}/file/`,
   thumbUrl: (id) => `/api/images/${id}/thumb/`,
-};
-
-export const FloorPlansAPI = {
-  list: (placeId) => api.get(`/places/${placeId}/floor-plans/`),
-  upload: (placeId, formData) =>
-    api.post(`/places/${placeId}/floor-plans/`, formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    }),
-  fileUrl: (id) => `/api/floor-plans/${id}/file/`,
-  waypoints: (placeId, floorPlanId) =>
-    api.get(`/places/${placeId}/floor-plans/${floorPlanId}/waypoints/`),
-};
-
-export const PlaceRouteAPI = {
-  // Place-wide routing: works across floors, since a Place can have several
-  // floor plans linked by VerticalConnections (lift/stairs between floors).
-  route: (placeId, payload) => api.post(`/places/${placeId}/route/`, payload),
-};
-
-export const WaypointsAPI = {
-  scan: (qrCodeValue) => api.get(`/waypoints/scan/${encodeURIComponent(qrCodeValue)}/`),
 };
 
 // Geocoding for the "search a location, click the map to add a place" flow.

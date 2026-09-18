@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { PlacesAPI, AccessPointsAPI, ImagesAPI, FloorPlansAPI } from "../api/client";
+import { PlacesAPI, AccessPointsAPI, FacilitiesAPI, ImagesAPI } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import ConfidenceBadge from "../components/ConfidenceBadge";
 
+// ---------------------------------------------------------------------------
+// Attribute row with confirm / dispute buttons
+// ---------------------------------------------------------------------------
 function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
   const { user } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -52,6 +55,9 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Access point card
+// ---------------------------------------------------------------------------
 function AccessPointCard({ accessPoint, placeId, onChanged }) {
   const [attributes, setAttributes] = useState([]);
   const [images, setImages] = useState([]);
@@ -106,17 +112,130 @@ function AccessPointCard({ accessPoint, placeId, onChanged }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Inline "Add a facility" form for logged-in users
+// ---------------------------------------------------------------------------
+
+// Seeded facility types (IDs match the standard seed). The form fetches them
+// live if available; these are the fallback for offline / first-run.
+const FACILITY_TYPE_OPTIONS = [
+  { id: 1, name: "Restroom" },
+  { id: 2, name: "Elevator" },
+  { id: 3, name: "Parking" },
+  { id: 4, name: "Ramp" },
+  { id: 5, name: "Tactile Path" },
+  { id: 6, name: "Braille Signage" },
+];
+
+function AddFacilityForm({ placeId, onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [facility, setFacility] = useState({
+    facility_type: "", floor_level: "", location_description: "", is_accessible: false,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!facility.facility_type) { setError("Please select a facility type."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await FacilitiesAPI.create(placeId, facility);
+      setFacility({ facility_type: "", floor_level: "", location_description: "", is_accessible: false });
+      setOpen(false);
+      onAdded();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Could not save the facility. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        id="add-facility-btn"
+        className="btn-secondary"
+        style={{ marginTop: "0.5rem" }}
+        onClick={() => setOpen(true)}
+      >
+        + Add a facility
+      </button>
+    );
+  }
+
+  return (
+    <div className="card" style={{ marginTop: "1rem", border: "1px solid var(--color-primary)" }}>
+      <h3 style={{ marginTop: 0 }}>Add a facility to this building</h3>
+      {error && <p className="error-text" role="alert">{error}</p>}
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="new-f-type">Facility type</label>
+          <select
+            id="new-f-type"
+            required
+            value={facility.facility_type}
+            onChange={(e) => setFacility({ ...facility, facility_type: e.target.value })}
+          >
+            <option value="">Select a type</option>
+            {FACILITY_TYPE_OPTIONS.map((ft) => (
+              <option key={ft.id} value={ft.id}>{ft.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="new-f-floor">Floor level (e.g. Ground, 2nd Floor)</label>
+          <input
+            id="new-f-floor"
+            value={facility.floor_level}
+            onChange={(e) => setFacility({ ...facility, floor_level: e.target.value })}
+            placeholder="Ground"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="new-f-desc">Location description</label>
+          <textarea
+            id="new-f-desc"
+            rows={2}
+            value={facility.location_description}
+            onChange={(e) => setFacility({ ...facility, location_description: e.target.value })}
+            placeholder="e.g. Near the main lobby, left of the entrance"
+          />
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5em", fontWeight: 400, marginBottom: "1em" }}>
+          <input
+            type="checkbox"
+            style={{ width: "auto" }}
+            checked={facility.is_accessible}
+            onChange={(e) => setFacility({ ...facility, is_accessible: e.target.checked })}
+          />
+          This facility is accessible
+        </label>
+        <div style={{ display: "flex", gap: "0.6rem" }}>
+          <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? "Saving…" : "Save facility"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main PlaceDetail page
+// ---------------------------------------------------------------------------
 export default function PlaceDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [place, setPlace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [placeImages, setPlaceImages] = useState([]);
-  const [floorPlans, setFloorPlans] = useState([]);
 
   function load() {
     PlacesAPI.detail(id).then((res) => setPlace(res.data)).finally(() => setLoading(false));
     ImagesAPI.list("place", id).then((res) => setPlaceImages(res.data.results || res.data));
-    FloorPlansAPI.list(id).then((res) => setFloorPlans(res.data.results || res.data)).catch(() => setFloorPlans([]));
   }
 
   useEffect(load, [id]);
@@ -150,16 +269,6 @@ export default function PlaceDetail() {
         </div>
       )}
 
-      {floorPlans.length > 0 && (
-        <div className="card" style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <strong>Indoor navigation available</strong>
-            <p className="muted" style={{ margin: 0 }}>{floorPlans.length} floor{floorPlans.length > 1 ? "s" : ""} mapped</p>
-          </div>
-          <Link to={`/places/${place.id}/navigate`}><button className="btn-primary">Navigate inside</button></Link>
-        </div>
-      )}
-
       <section style={{ marginTop: "1.5rem" }}>
         <h2>Access points</h2>
         {place.access_points?.length ? (
@@ -172,9 +281,11 @@ export default function PlaceDetail() {
       </section>
 
       <section style={{ marginTop: "1.5rem" }}>
-        <h2>Facilities</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0 }}>Facilities</h2>
+        </div>
         {place.facilities?.length ? (
-          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: "0.7rem" }}>
+          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: "0.7rem", marginTop: "0.8rem" }}>
             {place.facilities.map((f) => (
               <li key={f.id} className="card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -193,6 +304,16 @@ export default function PlaceDetail() {
           </ul>
         ) : (
           <p className="muted">No facilities recorded yet.</p>
+        )}
+
+        {/* Only logged-in users can add facilities to an existing building */}
+        {user && (
+          <AddFacilityForm placeId={place.id} onAdded={load} />
+        )}
+        {!user && (
+          <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>
+            <Link to="/login">Log in</Link> to add a facility to this building.
+          </p>
         )}
       </section>
     </main>

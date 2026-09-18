@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   PlacesAPI, AccessPointsAPI, FacilitiesAPI,
@@ -6,6 +6,15 @@ import {
 } from "../api/client";
 
 const STEPS = ["Place details", "Main entrance", "Facilities (optional)", "Photo (optional)"];
+
+// Debounce helper — waits `delay` ms after the last call before invoking fn.
+function useDebounce(fn, delay) {
+  const [timer, setTimer] = useState(null);
+  return useCallback((...args) => {
+    if (timer) clearTimeout(timer);
+    setTimer(setTimeout(() => fn(...args), delay));
+  }, [fn, delay, timer]);
+}
 
 export default function AddPlace() {
   const navigate = useNavigate();
@@ -44,12 +53,50 @@ export default function AddPlace() {
   const [createdPlaceId, setCreatedPlaceId] = useState(null);
   const [createdAccessPointId, setCreatedAccessPointId] = useState(null);
 
+  // Duplicate building detection
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);   // list of existing places within 50 m
+  const [nearbyDismissed, setNearbyDismissed] = useState(false);  // user explicitly chose to continue anyway
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+
   useEffect(() => {
     PlacesAPI.categories().then((res) => setCategories(res.data.results || res.data));
     AttributeDefinitionsAPI.list({ applies_to: "access_point" }).then((res) =>
       setAttributeDefs(res.data.results || res.data)
     );
   }, []);
+
+  // Run the nearby check whenever lat/lng are valid numbers.
+  // We only show the warning when the user hasn't explicitly dismissed it yet.
+  async function checkNearby(lat, lng) {
+    const numLat = parseFloat(lat);
+    const numLng = parseFloat(lng);
+    if (isNaN(numLat) || isNaN(numLng)) { setNearbyPlaces([]); return; }
+    setNearbyLoading(true);
+    try {
+      const res = await PlacesAPI.nearby(numLat, numLng, 50);
+      setNearbyPlaces(res.data || []);
+      setNearbyDismissed(false); // reset dismissal on new coordinates
+    } catch {
+      setNearbyPlaces([]); // fail silently — don't block submission
+    } finally {
+      setNearbyLoading(false);
+    }
+  }
+
+  // Trigger nearby check whenever coordinates change (prefilled or typed)
+  useEffect(() => {
+    if (prefilled?.lat && prefilled?.lng) {
+      checkNearby(prefilled.lat, prefilled.lng);
+    }
+  }, []);
+
+  function handleLatLngChange(field, value) {
+    const updated = { ...place, [field]: value };
+    setPlace(updated);
+    if (updated.lat && updated.lng) {
+      checkNearby(updated.lat, updated.lng);
+    }
+  }
 
   function findAttrId(name) {
     return attributeDefs.find((a) => a.name === name)?.id;
@@ -131,6 +178,9 @@ export default function AddPlace() {
     }
   }
 
+  // Whether we should show the duplicate warning (places found + not dismissed)
+  const showNearbyWarning = nearbyPlaces.length > 0 && !nearbyDismissed && step === 0;
+
   return (
     <main className="container" style={{ padding: "2rem 1.25rem", maxWidth: 560 }}>
       <h1>Add a place</h1>
@@ -139,6 +189,74 @@ export default function AddPlace() {
       </p>
 
       {error && <p className="error-text" role="alert">{error}</p>}
+
+      {/* ── Duplicate Building Warning ────────────────────────────────────── */}
+      {showNearbyWarning && (
+        <div
+          role="alert"
+          style={{
+            background: "var(--color-warn-light, #fff8e1)",
+            border: "1.5px solid var(--color-warn, #f5a623)",
+            borderRadius: 10,
+            padding: "1rem 1.1rem",
+            marginBottom: "1.1rem",
+          }}
+        >
+          <strong style={{ display: "block", marginBottom: "0.4em" }}>
+            ⚠️ Similar building{nearbyPlaces.length > 1 ? "s" : ""} already exist nearby
+          </strong>
+          <p style={{ margin: "0 0 0.7em", fontSize: "0.92rem" }}>
+            The following place{nearbyPlaces.length > 1 ? "s are" : " is"} within 50&nbsp;m of the location you entered.
+            If this is the same building, please add your information as a <strong>facility</strong> to the existing entry instead of creating a duplicate.
+          </p>
+          <ul style={{ listStyle: "none", padding: 0, margin: "0 0 0.8em", display: "grid", gap: "0.5rem" }}>
+            {nearbyPlaces.map((np) => (
+              <li
+                key={np.id}
+                style={{
+                  background: "var(--color-surface, #fff)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                  padding: "0.55em 0.85em",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                }}
+              >
+                <div>
+                  <strong>{np.name}</strong>
+                  {np.category_name && (
+                    <span className="muted" style={{ marginLeft: "0.4em", fontSize: "0.85rem" }}>
+                      · {np.category_name}
+                    </span>
+                  )}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}
+                  onClick={() => navigate(`/places/${np.id}`)}
+                >
+                  Add facility to this building
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: "0.85rem" }}
+            onClick={() => setNearbyDismissed(true)}
+          >
+            This is a different place — continue adding
+          </button>
+        </div>
+      )}
+      {nearbyLoading && (
+        <p className="muted" style={{ fontSize: "0.85rem", marginBottom: "0.6rem" }}>
+          Checking for existing nearby buildings…
+        </p>
+      )}
+      {/* ─────────────────────────────────────────────────────────────────── */}
 
       {step === 0 && (
         <div className="card">
@@ -184,11 +302,25 @@ export default function AddPlace() {
               <div style={{ display: "flex", gap: "0.8rem" }}>
                 <div className="field" style={{ flex: 1 }}>
                   <label htmlFor="p-lat">Latitude</label>
-                  <input id="p-lat" required type="number" step="any" value={place.lat} onChange={(e) => setPlace({ ...place, lat: e.target.value })} />
+                  <input
+                    id="p-lat"
+                    required
+                    type="number"
+                    step="any"
+                    value={place.lat}
+                    onChange={(e) => handleLatLngChange("lat", e.target.value)}
+                  />
                 </div>
                 <div className="field" style={{ flex: 1 }}>
                   <label htmlFor="p-lng">Longitude</label>
-                  <input id="p-lng" required type="number" step="any" value={place.lng} onChange={(e) => setPlace({ ...place, lng: e.target.value })} />
+                  <input
+                    id="p-lng"
+                    required
+                    type="number"
+                    step="any"
+                    value={place.lng}
+                    onChange={(e) => handleLatLngChange("lng", e.target.value)}
+                  />
                 </div>
               </div>
               <p className="muted" style={{ fontSize: "0.85rem" }}>
