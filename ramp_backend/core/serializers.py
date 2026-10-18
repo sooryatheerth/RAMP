@@ -5,8 +5,8 @@ from rest_framework import serializers
 
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
-    AttributeDefinition, AttributeVerification, Facility, FacilityAttribute, FacilityType,
-    Image, Place, PlaceCategory, User, UserAccessibilityProfile,
+    AttributeDefinition, AttributeVerification, Badge, Facility, FacilityAttribute, FacilityType,
+    Image, Place, PlaceCategory, User, UserAccessibilityProfile, UserBadge,
 )
 
 
@@ -25,6 +25,8 @@ class UserSerializer(serializers.ModelSerializer):
     accessibility_profile_codes = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=False
     )
+    reward_tier = serializers.SerializerMethodField()
+    badges_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -32,8 +34,19 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "username", "email", "first_name", "last_name",
             "user_type", "reputation_score", "is_verified_email",
             "accessibility_profiles", "accessibility_profile_codes",
+            "reward_tier", "badges_count",
         ]
-        read_only_fields = ["id", "reputation_score", "is_verified_email", "user_type"]
+        read_only_fields = [
+            "id", "reputation_score", "is_verified_email", "user_type",
+            "reward_tier", "badges_count",
+        ]
+
+    def get_reward_tier(self, obj):
+        from .gamification import get_user_reward_tier
+        return get_user_reward_tier(obj.reputation_score)
+
+    def get_badges_count(self, obj):
+        return obj.user_badges.count()
 
     def get_accessibility_profiles(self, obj):
         profiles = AccessibilityProfile.objects.filter(useraccessibilityprofile__user=obj)
@@ -142,6 +155,8 @@ class PlaceDetailSerializer(serializers.ModelSerializer):
     """Full serializer including nested access points and facilities."""
     primary_location = PointField()
     category_name = serializers.CharField(source="category.name", read_only=True)
+    added_by_username = serializers.CharField(source="added_by.username", read_only=True)
+    added_by_tier = serializers.SerializerMethodField()
     access_points = AccessPointSerializer(many=True, read_only=True)
     facilities = FacilitySerializer(many=True, read_only=True)
 
@@ -149,12 +164,18 @@ class PlaceDetailSerializer(serializers.ModelSerializer):
         model = Place
         fields = [
             "id", "name", "category", "category_name", "primary_location",
-            "description", "address", "city", "added_by", "claimed_by_venue",
-            "overall_accessibility_score", "access_points", "facilities",
+            "description", "address", "city", "added_by", "added_by_username", "added_by_tier",
+            "claimed_by_venue", "overall_accessibility_score", "access_points", "facilities",
             "created_at", "updated_at",
         ]
-        read_only_fields = ["added_by", "claimed_by_venue", "overall_accessibility_score",
-                             "created_at", "updated_at"]
+        read_only_fields = ["added_by", "added_by_username", "added_by_tier", "claimed_by_venue",
+                             "overall_accessibility_score", "created_at", "updated_at"]
+
+    def get_added_by_tier(self, obj):
+        if obj.added_by:
+            from .gamification import get_user_reward_tier
+            return get_user_reward_tier(obj.added_by.reputation_score)
+        return None
 
     def create(self, validated_data):
         validated_data["added_by"] = self.context["request"].user
@@ -177,6 +198,7 @@ class AttributeDefinitionSerializer(serializers.ModelSerializer):
 class AccessPointAttributeSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source="attribute_definition.name", read_only=True)
     submitted_by_username = serializers.CharField(source="submitted_by.username", read_only=True)
+    submitted_by_tier = serializers.SerializerMethodField()
     user_action = serializers.SerializerMethodField()
 
     class Meta:
@@ -184,13 +206,19 @@ class AccessPointAttributeSerializer(serializers.ModelSerializer):
         fields = [
             "id", "access_point", "attribute_definition", "attribute_name",
             "value_boolean", "value_number", "value_text", "submitted_by",
-            "submitted_by_username", "user_action",
+            "submitted_by_username", "submitted_by_tier", "user_action",
             "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
         read_only_fields = [
-            "access_point", "submitted_by", "submitted_at", "verification_status",
-            "verified_count", "last_verified_at",
+            "access_point", "submitted_by", "submitted_by_username", "submitted_by_tier",
+            "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
+
+    def get_submitted_by_tier(self, obj):
+        if obj.submitted_by:
+            from .gamification import get_user_reward_tier
+            return get_user_reward_tier(obj.submitted_by.reputation_score)
+        return None
 
     def get_user_action(self, obj):
         request = self.context.get("request")
@@ -210,6 +238,7 @@ class AccessPointAttributeSerializer(serializers.ModelSerializer):
 class FacilityAttributeSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source="attribute_definition.name", read_only=True)
     submitted_by_username = serializers.CharField(source="submitted_by.username", read_only=True)
+    submitted_by_tier = serializers.SerializerMethodField()
     user_action = serializers.SerializerMethodField()
 
     class Meta:
@@ -217,13 +246,19 @@ class FacilityAttributeSerializer(serializers.ModelSerializer):
         fields = [
             "id", "facility", "attribute_definition", "attribute_name",
             "value_boolean", "value_number", "value_text", "submitted_by",
-            "submitted_by_username", "user_action",
+            "submitted_by_username", "submitted_by_tier", "user_action",
             "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
         read_only_fields = [
-            "facility", "submitted_by", "submitted_at", "verification_status",
-            "verified_count", "last_verified_at",
+            "facility", "submitted_by", "submitted_by_username", "submitted_by_tier",
+            "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
+
+    def get_submitted_by_tier(self, obj):
+        if obj.submitted_by:
+            from .gamification import get_user_reward_tier
+            return get_user_reward_tier(obj.submitted_by.reputation_score)
+        return None
 
     def get_user_action(self, obj):
         request = self.context.get("request")
@@ -421,3 +456,28 @@ class AdminAttributeVerificationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "attribute_row_id", "attribute_table",
                              "verified_by", "verified_by_username", "action",
                              "comment", "created_at"]
+
+
+# ---------------------------------------------------------------------------
+# Module 5: Gamification Serializers
+# ---------------------------------------------------------------------------
+
+class BadgeSerializer(serializers.ModelSerializer):
+    category_label = serializers.CharField(source="get_category_display", read_only=True)
+    tier_label = serializers.CharField(source="get_tier_display", read_only=True)
+
+    class Meta:
+        model = Badge
+        fields = [
+            "id", "code", "name", "description", "category", "category_label",
+            "tier", "tier_label", "icon", "metric", "threshold",
+            "points_reward", "is_active", "created_at",
+        ]
+
+
+class UserBadgeSerializer(serializers.ModelSerializer):
+    badge = BadgeSerializer(read_only=True)
+
+    class Meta:
+        model = UserBadge
+        fields = ["id", "badge", "awarded_at"]

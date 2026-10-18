@@ -36,6 +36,16 @@ export function AuthProvider({ children }) {
     await login(payload.username, payload.password);
   }
 
+  async function refreshUser() {
+    try {
+      const res = await AuthAPI.me();
+      setUser(res.data);
+      return res.data;
+    } catch {
+      return null;
+    }
+  }
+
   function logout() {
     localStorage.removeItem("ramp_access_token");
     localStorage.removeItem("ramp_refresh_token");
@@ -43,7 +53,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, setUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

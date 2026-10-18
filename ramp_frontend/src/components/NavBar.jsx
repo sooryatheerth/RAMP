@@ -46,6 +46,9 @@ export default function NavBar() {
         <div className="nav-links" style={{ display: "flex", alignItems: "center", gap: "0.9rem" }}>
           {!isHome && <Link to="/" className="btn-link" style={{ textDecoration: "none" }}>Home</Link>}
           <Link to="/places" className="btn-link" style={{ textDecoration: "none" }}>Explore</Link>
+          <Link to="/leaderboard" className="btn-link" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: "0.3em" }}>
+            <span>🏆</span> Leaderboard
+          </Link>
 
           {isAdmin && (
             <Link to="/admin" className="btn-link" style={{
@@ -76,6 +79,19 @@ export default function NavBar() {
                   {user.username[0].toUpperCase()}
                 </span>
                 <span className="muted" style={{ fontSize: "0.9rem" }}>{user.username}</span>
+                <span
+                  style={{
+                    fontSize: "0.78rem",
+                    background: "var(--color-primary-light)",
+                    color: "var(--color-primary-dark)",
+                    padding: "0.15em 0.5em",
+                    borderRadius: 999,
+                    fontWeight: 700,
+                  }}
+                  title="Reputation Score"
+                >
+                  ⭐ {user.reputation_score || 0}
+                </span>
               </Link>
               <button className="btn-secondary" onClick={handleLogout}>
                 Log out
@@ -112,6 +128,7 @@ export default function NavBar() {
           gap: "0.75rem",
         }}>
           <Link to="/places" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>Explore places</Link>
+          <Link to="/leaderboard" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>🏆 Leaderboard & Achievements</Link>
           {isAdmin && (
             <Link to="/admin" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>⚙ Admin</Link>
           )}

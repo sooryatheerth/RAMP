@@ -14,16 +14,20 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
     AccessPoint, AccessPointAttribute, AttributeDefinition,
-    AttributeVerification, Facility, FacilityAttribute, FacilityType, Image,
-    Place, PlaceCategory, SystemConfig, User, VerificationStatus,
+    AttributeVerification, Badge, Facility, FacilityAttribute, FacilityType, Image,
+    Place, PlaceCategory, SystemConfig, User, UserBadge, VerificationStatus,
 )
 from .permissions import CanVerifySubmissions, IsOwnerOrReadOnly
 from .serializers import (
     AccessPointAttributeSerializer, AccessPointSerializer,
-    AttributeDefinitionSerializer, FacilityAttributeSerializer,
+    AttributeDefinitionSerializer, BadgeSerializer, FacilityAttributeSerializer,
     FacilitySerializer, FacilityTypeSerializer, ImageMetaSerializer,
     ImageUploadSerializer, PlaceCategorySerializer, PlaceDetailSerializer,
-    PlaceListSerializer, RegisterSerializer, UserSerializer,
+    PlaceListSerializer, RegisterSerializer, UserBadgeSerializer, UserSerializer,
+)
+from .gamification import (
+    REWARD_TIERS, evaluate_and_award_badges, get_leaderboard_data,
+    get_user_milestones, get_user_reward_tier, get_user_stats,
 )
 
 
@@ -51,6 +55,7 @@ class MeView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
+        evaluate_and_award_badges(self.request.user)
         return self.request.user
 
 
@@ -218,6 +223,7 @@ class PlaceViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         place = serializer.save(added_by=self.request.user)
         update_place_accessibility_score(place)
+        evaluate_and_award_badges(self.request.user)
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -310,6 +316,8 @@ class AccessPointAttributeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         attr = serializer.save(access_point_id=self.kwargs["access_point_pk"])
         update_place_accessibility_score(attr.access_point.place)
+        if self.request.user.is_authenticated:
+            evaluate_and_award_badges(self.request.user)
 
     def perform_update(self, serializer):
         attr = serializer.save()
@@ -366,6 +374,8 @@ class FacilityAttributeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         attr = serializer.save(facility_id=self.kwargs["facility_pk"])
         update_place_accessibility_score(attr.facility.place)
+        if self.request.user.is_authenticated:
+            evaluate_and_award_badges(self.request.user)
 
     def perform_update(self, serializer):
         attr = serializer.save()
@@ -438,9 +448,15 @@ def _verify_attribute(request, model_cls, table_name, pk):
             User.objects.filter(id=attribute.submitted_by_id).update(
                 reputation_score=models.F("reputation_score") + 5
             )
+            submitter = User.objects.filter(id=attribute.submitted_by_id).first()
+            if submitter:
+                evaluate_and_award_badges(submitter)
+
         User.objects.filter(id=request.user.id).update(
             reputation_score=models.F("reputation_score") + 2
         )
+        request.user.refresh_from_db(fields=["reputation_score"])
+        evaluate_and_award_badges(request.user)
     elif action_value == "dispute":
         attribute.verification_status = VerificationStatus.DISPUTED
     elif action_value == "reject":
@@ -504,7 +520,10 @@ class ImageViewSet(viewsets.ModelViewSet):
                 {"detail": f"Image cap reached ({cap} max for {entity_type})."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)
+        if request.user.is_authenticated:
+            evaluate_and_award_badges(request.user)
+        return response
 
     def destroy(self, request, *args, **kwargs):
         # soft-delete: preserve audit trail rather than hard-deleting the row
@@ -531,6 +550,87 @@ class ImageThumbView(APIView):
         image = Image.objects.get(pk=pk)
         data = bytes(image.thumbnail_data or image.image_data)
         return HttpResponse(data, content_type=image.content_type)
+
+
+# ---------------------------------------------------------------------------
+# Module 5: Gamification, Badges & Leaderboard Endpoints
+# ---------------------------------------------------------------------------
+
+class BadgesListView(generics.ListAPIView):
+    """GET /api/badges/ — lists all active badges and unlock criteria."""
+    serializer_class = BadgeSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        from .gamification import ensure_default_badges
+        ensure_default_badges()
+        return Badge.objects.filter(is_active=True).order_by("category", "threshold")
+
+
+class MyBadgesView(APIView):
+    """GET /api/badges/my/ — current user's badges, tier status, and milestones."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        evaluate_and_award_badges(request.user)
+        user_badges = UserBadge.objects.filter(user=request.user).select_related("badge")
+        stats = get_user_stats(request.user)
+        tier = get_user_reward_tier(request.user.reputation_score)
+        milestones = get_user_milestones(request.user)
+
+        return Response({
+            "badges": UserBadgeSerializer(user_badges, many=True).data,
+            "stats": stats,
+            "tier": tier,
+            "milestones": milestones,
+        })
+
+
+class ContributionMilestonesView(APIView):
+    """GET /api/badges/milestones/ — contribution milestones roadmap with progress."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        user = request.user if request.user.is_authenticated else None
+        if user:
+            evaluate_and_award_badges(user)
+        milestones = get_user_milestones(user)
+        return Response({
+            "milestones": milestones,
+        })
+
+
+class RewardTiersView(APIView):
+    """GET /api/badges/tiers/ — reward tier thresholds, perks, and user status."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        user_tier = None
+        if request.user.is_authenticated:
+            user_tier = get_user_reward_tier(request.user.reputation_score)
+        return Response({
+            "tiers": REWARD_TIERS,
+            "user_tier": user_tier,
+        })
+
+
+class LeaderboardView(APIView):
+    """GET /api/leaderboard/?type=reputation|verifications|places|badges — community rankings."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        ranking_type = request.query_params.get("type", "reputation")
+        try:
+            limit = min(100, max(1, int(request.query_params.get("limit", 50))))
+        except (ValueError, TypeError):
+            limit = 50
+
+        data = get_leaderboard_data(
+            ranking_type=ranking_type,
+            current_user=request.user,
+            limit=limit,
+        )
+        return Response(data)
 
 
 # ---------------------------------------------------------------------------

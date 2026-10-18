@@ -277,3 +277,63 @@ class SystemConfig(models.Model):
         return self.config_key
 
 
+# ---------------------------------------------------------------------------
+# Module 5: Gamification, Badges & Achievements
+# ---------------------------------------------------------------------------
+
+class BadgeTier(models.TextChoices):
+    BRONZE = "bronze", "Bronze"
+    SILVER = "silver", "Silver"
+    GOLD = "gold", "Gold"
+    PLATINUM = "platinum", "Platinum"
+    DIAMOND = "diamond", "Diamond"
+
+
+class BadgeCategory(models.TextChoices):
+    MAPPING = "mapping", "Mapping"
+    VERIFICATION = "verification", "Verification"
+    ATTRIBUTES = "attributes", "Attributes"
+    PHOTOS = "photos", "Photos"
+    REPUTATION = "reputation", "Reputation"
+    MILESTONE = "milestone", "Milestone"
+
+
+class Badge(models.Model):
+    """Contributor achievement badge with qualification criteria and visual tier."""
+    code = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    category = models.CharField(
+        max_length=20, choices=BadgeCategory.choices, default=BadgeCategory.MAPPING
+    )
+    tier = models.CharField(
+        max_length=20, choices=BadgeTier.choices, default=BadgeTier.BRONZE
+    )
+    icon = models.CharField(max_length=50, default="🏆")
+    metric = models.CharField(
+        max_length=50,
+        help_text="Metric tracked: places_count, verifications_count, attributes_count, images_count, reputation_score",
+    )
+    threshold = models.PositiveIntegerField(default=1)
+    points_reward = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.get_tier_display()})"
+
+
+class UserBadge(models.Model):
+    """Records an achievement badge unlocked by a contributor."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_badges")
+    badge = models.ForeignKey(Badge, on_delete=models.CASCADE, related_name="awarded_users")
+    awarded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "badge")
+        ordering = ["-awarded_at"]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.badge.name}"
+
+

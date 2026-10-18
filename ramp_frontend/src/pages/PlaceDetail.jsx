@@ -3,12 +3,13 @@ import { useParams, Link } from "react-router-dom";
 import { PlacesAPI, AccessPointsAPI, FacilitiesAPI, ImagesAPI } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import ConfidenceBadge from "../components/ConfidenceBadge";
+import RewardTierBadge from "../components/RewardTierBadge";
 
 // ---------------------------------------------------------------------------
 // Attribute row with confirm / dispute buttons
 // ---------------------------------------------------------------------------
 function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [busy, setBusy] = useState(false);
 
   const displayValue =
@@ -27,6 +28,7 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
     setBusy(true);
     try {
       await AccessPointsAPI.verifyAttribute(placeId, accessPointId, attribute.id, { action });
+      if (refreshUser) refreshUser();
       onVerified();
     } catch (err) {
       alert(err.response?.data?.detail || "Could not submit verification.");
@@ -52,6 +54,14 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
             ({attribute.verified_count} {attribute.verified_count === 1 ? "confirmation" : "confirmations"})
           </span>
         )}
+        {attribute.submitted_by_username && (
+          <span className="muted" style={{ fontSize: "0.78rem", marginLeft: "0.5em", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+            · by {attribute.submitted_by_username}
+            {attribute.submitted_by_tier && (
+              <RewardTierBadge tier={attribute.submitted_by_tier.tier} title={attribute.submitted_by_tier.title} size="sm" showTitle={false} />
+            )}
+          </span>
+        )}
       </div>
       {user && (
         <div style={{ display: "flex", gap: "0.4em", alignItems: "center" }}>
@@ -61,7 +71,7 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
             </span>
           ) : userAction === "confirm" ? (
             <span style={{ fontSize: "0.8rem", color: "var(--color-primary-dark)", fontWeight: 600 }}>
-              ✓ Confirmed by you
+              ✓ Confirmed by you (+2 pts)
             </span>
           ) : userAction === "dispute" ? (
             <span style={{ fontSize: "0.8rem", color: "var(--color-danger)", fontWeight: 600 }}>
@@ -69,7 +79,7 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
             </span>
           ) : (
             <>
-              <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("confirm")}>Confirm</button>
+              <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("confirm")}>Confirm (+2 pts)</button>
               <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("dispute")}>Dispute</button>
             </>
           )}
@@ -278,7 +288,18 @@ export default function PlaceDetail() {
         <div>
           <p className="muted" style={{ margin: 0 }}>{place.category_name}</p>
           <h1 style={{ margin: "0.1em 0" }}>{place.name}</h1>
-          <p className="muted">{place.address || place.city}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+            <span className="muted">{place.address || place.city}</span>
+            {place.added_by_username && (
+              <span className="muted" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
+                <span>·</span>
+                <span>Mapped by <strong>{place.added_by_username}</strong></span>
+                {place.added_by_tier && (
+                  <RewardTierBadge tier={place.added_by_tier.tier} title={place.added_by_tier.title} size="sm" />
+                )}
+              </span>
+            )}
+          </div>
         </div>
         <ConfidenceBadge score={place.overall_accessibility_score} />
       </div>

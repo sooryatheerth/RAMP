@@ -1,26 +1,29 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AuthAPI } from "../api/client";
+import { AuthAPI, GamificationAPI } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import ConfidenceBadge from "../components/ConfidenceBadge";
+import RewardTierBadge from "../components/RewardTierBadge";
+import BadgeItem from "../components/BadgeItem";
 
 const S = {
-  page: { maxWidth: 860, margin: "0 auto", padding: "2rem 1.25rem" },
+  page: { maxWidth: 940, margin: "0 auto", padding: "2rem 1.25rem 4rem" },
   section: {
     background: "#fff",
     border: "1px solid var(--color-border)",
-    borderRadius: 12,
+    borderRadius: 14,
     padding: "1.5rem",
     marginBottom: "1.5rem",
     boxShadow: "var(--shadow)",
   },
-  sectionTitle: { margin: "0 0 1rem", fontSize: "1.1rem", fontWeight: 700, color: "var(--color-primary-dark)" },
+  sectionTitle: { margin: "0 0 1rem", fontSize: "1.15rem", fontWeight: 700, color: "var(--color-primary-dark)" },
   avatar: {
-    width: 64, height: 64, borderRadius: "50%",
+    width: 68, height: 68, borderRadius: "50%",
     background: "var(--color-primary)", color: "#fff",
     display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "1.6rem", fontWeight: 700, flexShrink: 0,
+    fontSize: "1.8rem", fontWeight: 700, flexShrink: 0,
+    boxShadow: "0 2px 8px rgba(15, 110, 86, 0.25)",
   },
   badge: (type) => ({
     display: "inline-block",
@@ -53,6 +56,11 @@ export default function Profile() {
   const [pwForm, setPwForm] = useState({ old_password: "", new_password: "", confirm: "" });
   const [pwSaving, setPwSaving] = useState(false);
 
+  // Gamification state
+  const [badgesData, setBadgesData] = useState(null);
+  const [badgesLoading, setBadgesLoading] = useState(true);
+  const [badgeFilter, setBadgeFilter] = useState("all"); // "all", "unlocked", "locked"
+
   // My places
   const [myPlaces, setMyPlaces] = useState([]);
   const [placesLoading, setPlacesLoading] = useState(true);
@@ -66,14 +74,22 @@ export default function Profile() {
   }, [user]);
 
   useEffect(() => {
+    // Fetch user places & attributes
     AuthAPI.myPlaces()
       .then((r) => setMyPlaces(r.data.results || r.data))
       .catch(() => {})
       .finally(() => setPlacesLoading(false));
+
     AuthAPI.myAttributes()
       .then((r) => setMyAttrs(r.data.results || r.data))
       .catch(() => {})
       .finally(() => setAttrsLoading(false));
+
+    // Fetch gamification badges & tier
+    GamificationAPI.myBadges()
+      .then((r) => setBadgesData(r.data))
+      .catch(() => {})
+      .finally(() => setBadgesLoading(false));
   }, []);
 
   async function handleSave(e) {
@@ -115,9 +131,228 @@ export default function Profile() {
 
   if (!user) return null;
 
+  const tier = badgesData?.tier;
+  const stats = badgesData?.stats || {
+    places_count: myPlaces.length,
+    verifications_count: 0,
+    attributes_count: myAttrs.length,
+    reputation_score: user.reputation_score,
+  };
+  const earnedBadges = badgesData?.badges || [];
+  const milestones = badgesData?.milestones || [];
+
+  const earnedMap = new Map();
+  earnedBadges.forEach((ub) => {
+    earnedMap.set(ub.badge.code, ub);
+  });
+
+  // Filtered milestones / badges
+  const filteredMilestones = milestones.filter((m) => {
+    if (badgeFilter === "unlocked") return m.completed;
+    if (badgeFilter === "locked") return !m.completed;
+    return true;
+  });
+
+  const unlockedCount = milestones.filter((m) => m.completed).length;
+
   return (
     <main style={S.page}>
-      <h1 style={{ marginBottom: "1.5rem" }}>My Profile</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+        <h1 style={{ margin: 0 }}>Contributor Dashboard</h1>
+        <Link to="/leaderboard">
+          <button className="btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+            <span>🏆</span> View Community Leaderboard →
+          </button>
+        </Link>
+      </div>
+
+      {/* ── Contributor Status & Reward Tier Card ── */}
+      <section
+        style={{
+          background: "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+          border: `2px solid ${tier?.color || "var(--color-primary)"}`,
+          borderRadius: 16,
+          padding: "1.5rem",
+          marginBottom: "1.5rem",
+          boxShadow: "0 4px 16px rgba(0, 0, 0, 0.05)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", marginBottom: "1.2rem" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "2rem" }}>{tier?.icon || "🥉"}</span>
+              <div>
+                <h2 style={{ margin: 0, fontSize: "1.35rem" }}>{tier?.name || "Bronze Contributor"}</h2>
+                <span className="muted" style={{ fontSize: "0.9rem", fontStyle: "italic" }}>
+                  "{tier?.title || "Novice Scout"}"
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ textAlign: "right" }}>
+            <span style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--color-primary-dark)" }}>
+              {user.reputation_score}
+            </span>
+            <span className="muted" style={{ fontSize: "0.88rem", display: "block" }}>
+              Reputation Points
+            </span>
+          </div>
+        </div>
+
+        {/* Tier progress bar */}
+        {tier && (
+          <div style={{ marginBottom: "1.2rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: "0.35rem" }}>
+              <span style={{ fontWeight: 600 }}>
+                {tier.next_tier_name ? (
+                  <>
+                    Next tier: <strong>{tier.next_tier_icon} {tier.next_tier_name}</strong>
+                  </>
+                ) : (
+                  <>Top reward tier achieved! 👑</>
+                )}
+              </span>
+              <span className="muted">
+                {tier.points_to_next > 0
+                  ? `${tier.points_to_next} points to next tier`
+                  : "Maximum tier reached"}
+              </span>
+            </div>
+            <div
+              style={{
+                width: "100%",
+                height: 10,
+                background: "#e2e8f0",
+                borderRadius: 999,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${tier.progress_percent}%`,
+                  height: "100%",
+                  background: `linear-gradient(90deg, ${tier.color}, var(--color-primary))`,
+                  borderRadius: 999,
+                  transition: "width 0.5s ease",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Quick contribution counters */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+            gap: "0.75rem",
+            paddingTop: "1rem",
+            borderTop: "1px solid var(--color-border)",
+          }}
+        >
+          <div style={{ textAlign: "center", padding: "0.5rem", background: "var(--color-surface)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+            <span style={{ fontSize: "1.2rem" }}>📍</span>
+            <strong style={{ display: "block", fontSize: "1.2rem" }}>{stats.places_count}</strong>
+            <span className="muted" style={{ fontSize: "0.78rem" }}>Places Mapped</span>
+          </div>
+          <div style={{ textAlign: "center", padding: "0.5rem", background: "var(--color-surface)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+            <span style={{ fontSize: "1.2rem" }}>🔍</span>
+            <strong style={{ display: "block", fontSize: "1.2rem" }}>{stats.verifications_count}</strong>
+            <span className="muted" style={{ fontSize: "0.78rem" }}>Verifications</span>
+          </div>
+          <div style={{ textAlign: "center", padding: "0.5rem", background: "var(--color-surface)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+            <span style={{ fontSize: "1.2rem" }}>📝</span>
+            <strong style={{ display: "block", fontSize: "1.2rem" }}>{stats.attributes_count}</strong>
+            <span className="muted" style={{ fontSize: "0.78rem" }}>Attributes</span>
+          </div>
+          <div style={{ textAlign: "center", padding: "0.5rem", background: "var(--color-surface)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+            <span style={{ fontSize: "1.2rem" }}>🏆</span>
+            <strong style={{ display: "block", fontSize: "1.2rem" }}>{unlockedCount} / {milestones.length}</strong>
+            <span className="muted" style={{ fontSize: "0.78rem" }}>Badges Earned</span>
+          </div>
+        </div>
+
+        {/* Tier perks */}
+        {tier?.perks?.length > 0 && (
+          <div style={{ marginTop: "1rem", paddingTop: "0.85rem", borderTop: "1px solid var(--color-border)", fontSize: "0.85rem" }}>
+            <span className="muted" style={{ fontWeight: 600 }}>Active Tier Privileges:</span>
+            <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.2rem", color: "var(--color-text-muted)" }}>
+              {tier.perks.map((p, idx) => (
+                <li key={idx} style={{ marginBottom: "0.2rem" }}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {/* ── Badges & Achievements Section ── */}
+      <section style={S.section}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.2rem" }}>
+          <div>
+            <h3 style={{ ...S.sectionTitle, margin: 0 }}>🏆 Contributor Achievements & Badges</h3>
+            <p className="muted" style={{ margin: "0.2rem 0 0", fontSize: "0.85rem" }}>
+              Unlock badges by submitting verified accessibility features and peer reviews.
+            </p>
+          </div>
+
+          {/* Filter tabs */}
+          <div style={{ display: "flex", gap: "0.4rem", background: "#f1f5f9", padding: "0.25rem", borderRadius: 8 }}>
+            {[
+              { id: "all", label: `All (${milestones.length})` },
+              { id: "unlocked", label: `Unlocked (${unlockedCount})` },
+              { id: "locked", label: `In Progress (${milestones.length - unlockedCount})` },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setBadgeFilter(tab.id)}
+                style={{
+                  padding: "0.3em 0.75em",
+                  borderRadius: 6,
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  background: badgeFilter === tab.id ? "var(--color-surface)" : "transparent",
+                  color: badgeFilter === tab.id ? "var(--color-primary-dark)" : "var(--color-text-muted)",
+                  boxShadow: badgeFilter === tab.id ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  border: "none",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {badgesLoading ? (
+          <p className="muted">Loading achievements…</p>
+        ) : filteredMilestones.length === 0 ? (
+          <p className="muted">No badges match this filter.</p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "1rem",
+            }}
+          >
+            {filteredMilestones.map((m) => {
+              const ub = earnedMap.get(m.code);
+              return (
+                <BadgeItem
+                  key={m.code}
+                  badge={m}
+                  isUnlocked={m.completed}
+                  awardedAt={ub?.awarded_at}
+                  progress={{
+                    current_value: m.current_value,
+                    target_value: m.target_value,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* ── Identity card ── */}
       <div style={S.section}>
@@ -127,6 +362,9 @@ export default function Profile() {
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: "1.3rem" }}>{user.username}</h2>
               <span style={S.badge(user.user_type)}>{user.user_type}</span>
+              {tier && (
+                <RewardTierBadge tier={tier.tier} title={tier.title} size="sm" />
+              )}
               {user.is_verified_email
                 ? <span style={{ color: "var(--color-primary-dark)", fontSize: "0.82rem", fontWeight: 600 }}>✓ Email verified</span>
                 : <span style={{ color: "var(--color-warn)", fontSize: "0.82rem" }}>⚠ Email not verified</span>

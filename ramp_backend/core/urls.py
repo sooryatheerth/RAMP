@@ -52,6 +52,13 @@ urlpatterns = [
     path("images/<int:pk>/file/", views.ImageFileView.as_view(), name="image-file"),
     path("images/<int:pk>/thumb/", views.ImageThumbView.as_view(), name="image-thumb"),
 
+    # Gamification, badges, milestones & leaderboards
+    path("badges/", views.BadgesListView.as_view(), name="badges-list"),
+    path("badges/my/", views.MyBadgesView.as_view(), name="my-badges"),
+    path("badges/milestones/", views.ContributionMilestonesView.as_view(), name="badges-milestones"),
+    path("badges/tiers/", views.RewardTiersView.as_view(), name="badges-tiers"),
+    path("leaderboard/", views.LeaderboardView.as_view(), name="leaderboard"),
+
     # Nearby places for duplicate-building detection (before submission).
     # Must be declared before the router include to avoid conflict with /places/{pk}/.
     path("places/nearby/", views.NearbyPlacesView.as_view(), name="places-nearby"),

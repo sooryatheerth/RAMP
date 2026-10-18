@@ -3,9 +3,9 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
-    AttributeDefinition, AttributeVerification, Facility,
+    AttributeDefinition, AttributeVerification, Badge, Facility,
     FacilityAttribute, FacilityType, Image, Place, PlaceCategory,
-    SystemConfig, User, UserAccessibilityProfile, VenueOwnerProfile,
+    SystemConfig, User, UserAccessibilityProfile, UserBadge, VenueOwnerProfile,
 )
 
 
@@ -31,3 +31,18 @@ admin.site.register(FacilityAttribute)
 admin.site.register(AttributeVerification)
 admin.site.register(Image)
 admin.site.register(SystemConfig)
+
+
+@admin.register(Badge)
+class BadgeAdmin(admin.ModelAdmin):
+    list_display = ["name", "code", "category", "tier", "metric", "threshold", "points_reward", "is_active"]
+    list_filter = ["category", "tier", "is_active"]
+    search_fields = ["name", "code", "description"]
+
+
+@admin.register(UserBadge)
+class UserBadgeAdmin(admin.ModelAdmin):
+    list_display = ["user", "badge", "awarded_at"]
+    list_filter = ["badge__category", "badge__tier"]
+    search_fields = ["user__username", "badge__name"]
+    raw_id_fields = ["user"]

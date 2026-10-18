@@ -9,6 +9,7 @@ import Register from "./pages/Register";
 import AddPlace from "./pages/AddPlace";
 import Admin from "./pages/Admin";
 import Profile from "./pages/Profile";
+import Leaderboard from "./pages/Leaderboard";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/places" element={<PlacesList />} />
         <Route path="/places/new" element={<RequireAuth><AddPlace /></RequireAuth>} />
         <Route path="/places/:id" element={<PlaceDetail />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />

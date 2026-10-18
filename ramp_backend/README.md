@@ -55,6 +55,11 @@ python manage.py runserver
 | `/api/images/` | GET/POST | Upload/list images (multipart, enforces per-entity cap) |
 | `/api/images/{id}/file/` | GET | Full-resolution binary |
 | `/api/images/{id}/thumb/` | GET | Thumbnail binary |
+| `/api/badges/` | GET | List all achievement badges and unlock criteria |
+| `/api/badges/my/` | GET | Current user badges, tier status, and milestones |
+| `/api/badges/milestones/` | GET | Contribution milestones roadmap with live progress |
+| `/api/badges/tiers/` | GET | Contributor reward tiers, thresholds, and privileges |
+| `/api/leaderboard/` | GET | Community leaderboard (filter: `?type=reputation|verifications|places|badges`) |
 
 ## Notes
 - Images are stored directly in Postgres (`BinaryField`) per project decision — thumbnails are

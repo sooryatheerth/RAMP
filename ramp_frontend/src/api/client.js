@@ -106,3 +106,11 @@ export const GeocodeAPI = {
       params: { q: query, format: "json", limit: 5 },
     }),
 };
+
+export const GamificationAPI = {
+  badges: () => api.get("/badges/"),
+  myBadges: () => api.get("/badges/my/"),
+  milestones: () => api.get("/badges/milestones/"),
+  tiers: () => api.get("/badges/tiers/"),
+  leaderboard: (params) => api.get("/leaderboard/", { params }),
+};
