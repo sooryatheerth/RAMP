@@ -12,17 +12,21 @@ const FacilityTypesPanel = lazy(() => import("./admin/FacilityTypesPanel"));
 const AttributesPanel = lazy(() => import("./admin/AttributesPanel"));
 const ImagesPanel = lazy(() => import("./admin/ImagesPanel"));
 const SystemConfigPanel = lazy(() => import("./admin/SystemConfigPanel"));
+const AccessibilityProfilesPanel = lazy(() => import("./admin/AccessibilityProfilesPanel"));
+const AccessPointsPanel = lazy(() => import("./admin/AccessPointsPanel"));
 
 const NAV_SECTIONS = [
-  { key: "overview",     icon: "📊", label: "Overview" },
-  { key: "users",        icon: "👤", label: "Users" },
-  { key: "venues",       icon: "🏢", label: "Venue Owners" },
-  { key: "places",       icon: "📍", label: "Places" },
-  { key: "categories",   icon: "🏷️", label: "Place Categories" },
+  { key: "overview",       icon: "📊", label: "Overview" },
+  { key: "users",          icon: "👤", label: "Users" },
+  { key: "venues",         icon: "🏢", label: "Venue Owners" },
+  { key: "places",         icon: "📍", label: "Places" },
+  { key: "access-points",  icon: "🚪", label: "Access Points" },
+  { key: "categories",     icon: "🏷️", label: "Place Categories" },
   { key: "facility-types", icon: "🔑", label: "Facility Types" },
-  { key: "attributes",   icon: "📋", label: "Attributes" },
-  { key: "images",       icon: "🖼️", label: "Images" },
-  { key: "config",       icon: "⚙️", label: "System Config" },
+  { key: "a11y-profiles",  icon: "♿", label: "A11y Profiles" },
+  { key: "attributes",     icon: "📋", label: "Attributes" },
+  { key: "images",         icon: "🖼️", label: "Images" },
+  { key: "config",         icon: "⚙️", label: "System Config" },
 ];
 
 function StatCard({ value, label, highlight }) {
@@ -104,8 +108,10 @@ export default function AdminPage() {
       case "users":         return <UsersPanel />;
       case "venues":        return <VenuesPanel />;
       case "places":        return <PlacesPanel />;
+      case "access-points": return <AccessPointsPanel />;
       case "categories":    return <PlaceCategoriesPanel />;
       case "facility-types": return <FacilityTypesPanel />;
+      case "a11y-profiles": return <AccessibilityProfilesPanel />;
       case "attributes":    return <AttributesPanel />;
       case "images":        return <ImagesPanel />;
       case "config":        return <SystemConfigPanel />;

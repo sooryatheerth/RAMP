@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -6,10 +7,20 @@ export default function NavBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const isHome = location.pathname === "/";
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const isAdmin = user && (user.is_staff || user.user_type === "admin");
+
+  function handleLogout() {
+    logout();
+    navigate("/");
+    setMenuOpen(false);
+  }
 
   return (
-    <header style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface)" }}>
+    <header style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface)", position: "sticky", top: 0, zIndex: 100 }}>
       <nav className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.9rem 1.25rem", gap: "0.75rem" }}>
+        {/* Left: logo + back */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           {!isHome && (
             <button
@@ -31,30 +42,42 @@ export default function NavBar() {
           </Link>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.9rem" }}>
+        {/* Desktop links */}
+        <div className="nav-links" style={{ display: "flex", alignItems: "center", gap: "0.9rem" }}>
           {!isHome && <Link to="/" className="btn-link" style={{ textDecoration: "none" }}>Home</Link>}
-          <Link to="/places" className="btn-link" style={{ textDecoration: "none" }}>Explore places</Link>
-          {user && (user.is_staff || user.user_type === "admin") && (
-            <Link
-              to="/admin"
-              className="btn-link"
-              style={{
-                textDecoration: "none",
-                background: "var(--color-primary-light)",
-                color: "var(--color-primary-dark)",
-                padding: "0.35em 0.8em",
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: "0.875rem",
-              }}
-            >
+          <Link to="/places" className="btn-link" style={{ textDecoration: "none" }}>Explore</Link>
+
+          {isAdmin && (
+            <Link to="/admin" className="btn-link" style={{
+              textDecoration: "none",
+              background: "var(--color-primary-light)",
+              color: "var(--color-primary-dark)",
+              padding: "0.35em 0.8em",
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: "0.875rem",
+            }}>
               ⚙ Admin
             </Link>
           )}
+
           {user ? (
             <>
-              <span className="muted" style={{ fontSize: "0.9rem" }}>Hi, {user.username}</span>
-              <button className="btn-secondary" onClick={() => { logout(); navigate("/"); }}>
+              <Link to="/profile" className="btn-link" style={{
+                textDecoration: "none",
+                display: "flex", alignItems: "center", gap: "0.4em",
+              }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: "50%",
+                  background: "var(--color-primary)", color: "#fff",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "0.85rem", fontWeight: 700,
+                }}>
+                  {user.username[0].toUpperCase()}
+                </span>
+                <span className="muted" style={{ fontSize: "0.9rem" }}>{user.username}</span>
+              </Link>
+              <button className="btn-secondary" onClick={handleLogout}>
                 Log out
               </button>
             </>
@@ -65,7 +88,46 @@ export default function NavBar() {
             </>
           )}
         </div>
+
+        {/* Mobile hamburger */}
+        <button
+          className="hamburger-btn btn-secondary"
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((o) => !o)}
+          style={{ display: "none", padding: "0.45em 0.7em", fontSize: "1.1rem" }}
+        >
+          {menuOpen ? "✕" : "☰"}
+        </button>
       </nav>
+
+      {/* Mobile dropdown */}
+      {menuOpen && (
+        <div className="mobile-menu" style={{
+          borderTop: "1px solid var(--color-border)",
+          background: "var(--color-surface)",
+          padding: "1rem 1.25rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.75rem",
+        }}>
+          <Link to="/places" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>Explore places</Link>
+          {isAdmin && (
+            <Link to="/admin" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>⚙ Admin</Link>
+          )}
+          {user ? (
+            <>
+              <Link to="/profile" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>👤 My profile</Link>
+              <button className="btn-secondary" onClick={handleLogout}>Log out</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>Log in</Link>
+              <Link to="/register" onClick={() => setMenuOpen(false)}><button className="btn-primary" style={{ width: "100%" }}>Sign up</button></Link>
+            </>
+          )}
+        </div>
+      )}
     </header>
   );
 }

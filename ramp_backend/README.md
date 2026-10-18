@@ -59,8 +59,8 @@ python manage.py runserver
 ## Notes
 - Images are stored directly in Postgres (`BinaryField`) per project decision — thumbnails are
   auto-generated on upload via Pillow to keep list/map views fast.
-- Attribute submissions start as `pending` and require 2 confirmations (tunable via
-  `RAMP_CONFIG["VERIFICATION_THRESHOLD"]` in `settings.py`) to flip to `verified`.
+- Attribute submissions start as `pending` and require 1 confirmation by default (tunable via
+  `RAMP_CONFIG["VERIFICATION_THRESHOLD"]` in `settings.py` or via System Configuration in the Admin Panel) to flip to `verified`.
 - Only users with `reputation_score >= 10` (or staff) can verify others' submissions —
   see `core/permissions.py::CanVerifySubmissions`.
 - Run `python manage.py seed_ramp` after migrating to populate accessibility profiles,

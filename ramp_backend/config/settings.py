@@ -126,7 +126,7 @@ RAMP_CONFIG = {
     "MAX_IMAGES_ACCESS_POINT": 3,
     "MAX_IMAGES_FACILITY": 3,
     "MAX_IMAGE_SIZE_MB": 5,
-    "VERIFICATION_THRESHOLD": 2,      # confirmations needed to flip pending -> verified
+    "VERIFICATION_THRESHOLD": 1,      # confirmations needed to flip pending -> verified
     "STALENESS_WINDOW_MONTHS": 6,
     "REVIEW_COOLDOWN_DAYS": 30,
 }

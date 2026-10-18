@@ -1,5 +1,8 @@
+from decimal import Decimal
+from django.conf import settings
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import D
+from django.db import models
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -11,16 +14,16 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
     AccessPoint, AccessPointAttribute, AttributeDefinition,
-    AttributeVerification, Facility, FacilityAttribute, Image,
-    Place, PlaceCategory, User, VerificationStatus,
+    AttributeVerification, Facility, FacilityAttribute, FacilityType, Image,
+    Place, PlaceCategory, SystemConfig, User, VerificationStatus,
 )
 from .permissions import CanVerifySubmissions, IsOwnerOrReadOnly
 from .serializers import (
     AccessPointAttributeSerializer, AccessPointSerializer,
     AttributeDefinitionSerializer, FacilityAttributeSerializer,
-    FacilitySerializer, ImageMetaSerializer, ImageUploadSerializer,
-    PlaceCategorySerializer, PlaceDetailSerializer, PlaceListSerializer,
-    RegisterSerializer, UserSerializer,
+    FacilitySerializer, FacilityTypeSerializer, ImageMetaSerializer,
+    ImageUploadSerializer, PlaceCategorySerializer, PlaceDetailSerializer,
+    PlaceListSerializer, RegisterSerializer, UserSerializer,
 )
 
 
@@ -51,6 +54,40 @@ class MeView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
+class ChangePasswordView(APIView):
+    """POST {old_password, new_password} — changes the authenticated user's password."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        old_pw = request.data.get("old_password", "")
+        new_pw = request.data.get("new_password", "")
+        if not request.user.check_password(old_pw):
+            return Response({"detail": "Current password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(new_pw) < 8:
+            return Response({"detail": "New password must be at least 8 characters."}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.set_password(new_pw)
+        request.user.save()
+        return Response({"detail": "Password changed successfully."})
+
+
+class MyPlacesView(generics.ListAPIView):
+    """GET /api/auth/my-places/ — places submitted by the authenticated user."""
+    serializer_class = PlaceListSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Place.objects.filter(added_by=self.request.user).select_related("category").order_by("-created_at")
+
+
+class MyAttributesView(generics.ListAPIView):
+    """GET /api/auth/my-attributes/ — access point attributes submitted by the authenticated user."""
+    serializer_class = AccessPointAttributeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return AccessPointAttribute.objects.filter(submitted_by=self.request.user).order_by("-submitted_at")
+
+
 # ---------------------------------------------------------------------------
 # Places
 # ---------------------------------------------------------------------------
@@ -59,6 +96,95 @@ class PlaceCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PlaceCategory.objects.all()
     serializer_class = PlaceCategorySerializer
     permission_classes = [permissions.AllowAny]
+
+
+class FacilityTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    """Public read-only list of facility types (Elevator, Ramp, etc.)."""
+    queryset = FacilityType.objects.all().order_by("name")
+    serializer_class = FacilityTypeSerializer
+    permission_classes = [permissions.AllowAny]
+
+
+def get_verification_threshold():
+    """
+    Returns the number of confirmations needed to flip pending -> verified.
+    Checks the SystemConfig database table first, then settings.RAMP_CONFIG.
+    Defaults to 1 so that one independent peer confirmation verifies a submission.
+    """
+    try:
+        cfg = SystemConfig.objects.filter(config_key="VERIFICATION_THRESHOLD").first()
+        if cfg and cfg.config_value.strip().isdigit():
+            return max(1, int(cfg.config_value.strip()))
+    except Exception:
+        pass
+    ramp_cfg = getattr(settings, "RAMP_CONFIG", {})
+    return ramp_cfg.get("VERIFICATION_THRESHOLD", 1)
+
+
+def update_place_accessibility_score(place):
+    """
+    Computes an overall accessibility score (0 to 100) based on:
+    1. Entrance accessibility (is_accessible, is_primary_accessible_entrance)
+    2. Attribute verification confidence (percentage of attributes verified vs pending/disputed)
+    3. Facility accessibility (accessible amenities)
+    """
+    access_points = list(place.access_points.prefetch_related("attributes").all())
+    facilities = list(place.facilities.prefetch_related("attributes").all())
+
+    if not access_points and not facilities:
+        place.overall_accessibility_score = Decimal("0.00")
+        place.save(update_fields=["overall_accessibility_score"])
+        return Decimal("0.00")
+
+    # 1. Entrance accessibility (0 - 35 points)
+    entrance_points = 0.0
+    has_accessible_entrance = False
+    if access_points:
+        has_accessible_entrance = any(ap.is_accessible for ap in access_points)
+        has_primary = any(ap.is_accessible and ap.is_primary_accessible_entrance for ap in access_points)
+        if has_primary:
+            entrance_points = 35.0
+        elif has_accessible_entrance:
+            entrance_points = 25.0
+        else:
+            entrance_points = 5.0
+    else:
+        entrance_points = 15.0
+
+    # 2. Attribute verification confidence (0 - 50 points)
+    all_attributes = []
+    for ap in access_points:
+        all_attributes.extend(ap.attributes.all())
+    for f in facilities:
+        all_attributes.extend(f.attributes.all())
+
+    if all_attributes:
+        total_attrs = len(all_attributes)
+        verified_attrs = sum(1 for a in all_attributes if a.verification_status == VerificationStatus.VERIFIED)
+        disputed_attrs = sum(1 for a in all_attributes if a.verification_status in (VerificationStatus.DISPUTED, VerificationStatus.REJECTED))
+
+        verified_ratio = verified_attrs / total_attrs
+        disputed_ratio = disputed_attrs / total_attrs
+        attr_points = (verified_ratio * 50.0) - (disputed_ratio * 25.0)
+        attr_points = max(0.0, attr_points)
+    else:
+        verified_attrs = 0
+        attr_points = 20.0 if has_accessible_entrance else 0.0
+
+    # 3. Facilities accessibility (0 - 15 points)
+    facility_points = 0.0
+    if facilities:
+        accessible_fac = sum(1 for f in facilities if f.is_accessible)
+        facility_points = (accessible_fac / len(facilities)) * 15.0
+    else:
+        facility_points = 15.0 if (has_accessible_entrance and (not all_attributes or verified_attrs > 0)) else 0.0
+
+    score = entrance_points + attr_points + facility_points
+    score = min(100.0, max(0.0, score))
+
+    place.overall_accessibility_score = Decimal(f"{score:.2f}")
+    place.save(update_fields=["overall_accessibility_score"])
+    return place.overall_accessibility_score
 
 
 class PlaceViewSet(viewsets.ModelViewSet):
@@ -76,6 +202,7 @@ class PlaceViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         near = self.request.query_params.get("near")   # "lat,lng"
         radius_km = self.request.query_params.get("radius", "5")
+        q = self.request.query_params.get("q")
         if near:
             try:
                 lat, lng = (float(x) for x in near.split(","))
@@ -83,11 +210,28 @@ class PlaceViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(primary_location__distance_lte=(point, D(km=float(radius_km))))
             except (ValueError, TypeError):
                 pass
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=q) | Q(city__icontains=q) | Q(address__icontains=q))
         return qs
+
+    def perform_create(self, serializer):
+        place = serializer.save(added_by=self.request.user)
+        update_place_accessibility_score(place)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.overall_accessibility_score == 0 and (instance.access_points.exists() or instance.facilities.exists()):
+            update_place_accessibility_score(instance)
+            instance.refresh_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     @action(detail=True, methods=["get"])
     def score(self, request, pk=None):
         place = self.get_object()
+        update_place_accessibility_score(place)
+        place.refresh_from_db()
         access_points = place.access_points.all()
         total = access_points.count()
         accessible = access_points.filter(is_accessible=True).count()
@@ -141,7 +285,17 @@ class AccessPointViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(place_id=self.kwargs["place_pk"])
+        ap = serializer.save(place_id=self.kwargs["place_pk"])
+        update_place_accessibility_score(ap.place)
+
+    def perform_update(self, serializer):
+        ap = serializer.save()
+        update_place_accessibility_score(ap.place)
+
+    def perform_destroy(self, instance):
+        place = instance.place
+        super().perform_destroy(instance)
+        update_place_accessibility_score(place)
 
 
 class AccessPointAttributeViewSet(viewsets.ModelViewSet):
@@ -151,10 +305,20 @@ class AccessPointAttributeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return AccessPointAttribute.objects.filter(
             access_point_id=self.kwargs["access_point_pk"]
-        )
+        ).order_by("id")
 
     def perform_create(self, serializer):
-        serializer.save(access_point_id=self.kwargs["access_point_pk"])
+        attr = serializer.save(access_point_id=self.kwargs["access_point_pk"])
+        update_place_accessibility_score(attr.access_point.place)
+
+    def perform_update(self, serializer):
+        attr = serializer.save()
+        update_place_accessibility_score(attr.access_point.place)
+
+    def perform_destroy(self, instance):
+        place = instance.access_point.place
+        super().perform_destroy(instance)
+        update_place_accessibility_score(place)
 
     @action(detail=True, methods=["post"], permission_classes=[CanVerifySubmissions])
     def verify(self, request, pk=None, **kwargs):
@@ -170,14 +334,24 @@ class FacilityViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        qs = Facility.objects.all()
+        qs = Facility.objects.all().order_by("id")
         place_id = self.kwargs.get("place_pk")
         if place_id:
             qs = qs.filter(place_id=place_id)
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(place_id=self.kwargs["place_pk"])
+        fac = serializer.save(place_id=self.kwargs["place_pk"])
+        update_place_accessibility_score(fac.place)
+
+    def perform_update(self, serializer):
+        fac = serializer.save()
+        update_place_accessibility_score(fac.place)
+
+    def perform_destroy(self, instance):
+        place = instance.place
+        super().perform_destroy(instance)
+        update_place_accessibility_score(place)
 
 
 class FacilityAttributeViewSet(viewsets.ModelViewSet):
@@ -185,10 +359,22 @@ class FacilityAttributeViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        return FacilityAttribute.objects.filter(facility_id=self.kwargs["facility_pk"])
+        return FacilityAttribute.objects.filter(
+            facility_id=self.kwargs["facility_pk"]
+        ).order_by("id")
 
     def perform_create(self, serializer):
-        serializer.save(facility_id=self.kwargs["facility_pk"])
+        attr = serializer.save(facility_id=self.kwargs["facility_pk"])
+        update_place_accessibility_score(attr.facility.place)
+
+    def perform_update(self, serializer):
+        attr = serializer.save()
+        update_place_accessibility_score(attr.facility.place)
+
+    def perform_destroy(self, instance):
+        place = instance.facility.place
+        super().perform_destroy(instance)
+        update_place_accessibility_score(place)
 
     @action(detail=True, methods=["post"], permission_classes=[CanVerifySubmissions])
     def verify(self, request, pk=None, **kwargs):
@@ -239,19 +425,43 @@ def _verify_attribute(request, model_cls, table_name, pk):
     if action_value == "confirm":
         attribute.verified_count += 1
         attribute.last_verified_at = timezone.now()
-        threshold = 2  # mirrors RAMP_CONFIG["VERIFICATION_THRESHOLD"]
-        if attribute.verified_count >= threshold:
+        threshold = get_verification_threshold()
+        is_admin_or_staff = (
+            request.user.is_staff or
+            getattr(request.user, "user_type", None) in ("admin", "moderator")
+        )
+        if attribute.verified_count >= threshold or is_admin_or_staff:
             attribute.verification_status = VerificationStatus.VERIFIED
+
+        # Give reputation rewards
+        if attribute.submitted_by_id and attribute.submitted_by_id != request.user.id:
+            User.objects.filter(id=attribute.submitted_by_id).update(
+                reputation_score=models.F("reputation_score") + 5
+            )
+        User.objects.filter(id=request.user.id).update(
+            reputation_score=models.F("reputation_score") + 2
+        )
     elif action_value == "dispute":
         attribute.verification_status = VerificationStatus.DISPUTED
     elif action_value == "reject":
         attribute.verification_status = VerificationStatus.REJECTED
 
     attribute.save()
+
+    # Recalculate place accessibility score
+    place = None
+    if table_name == "access_point" and hasattr(attribute, "access_point"):
+        place = attribute.access_point.place
+    elif table_name == "facility" and hasattr(attribute, "facility"):
+        place = attribute.facility.place
+
+    if place:
+        update_place_accessibility_score(place)
+
     serializer_cls = (
         AccessPointAttributeSerializer if table_name == "access_point" else FacilityAttributeSerializer
     )
-    return Response(serializer_cls(attribute).data)
+    return Response(serializer_cls(attribute, context={"request": request}).data)
 
 
 # ---------------------------------------------------------------------------

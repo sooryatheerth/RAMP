@@ -35,8 +35,11 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
     }
   }
 
+  const isOwner = user && (user.id === attribute.submitted_by || user.username === attribute.submitted_by_username);
+  const userAction = attribute.user_action;
+
   return (
-    <li style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.6em 0", borderBottom: "1px solid var(--color-border)" }}>
+    <li style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.6em 0", borderBottom: "1px solid var(--color-border)", flexWrap: "wrap", gap: "0.4rem" }}>
       <div>
         <strong>{attribute.attribute_name}:</strong> {String(displayValue)}{" "}
         <span
@@ -44,11 +47,32 @@ function AttributeRow({ attribute, placeId, accessPointId, onVerified }) {
         >
           {attribute.verification_status}
         </span>
+        {attribute.verified_count > 0 && (
+          <span className="muted" style={{ fontSize: "0.78rem", marginLeft: "0.4em" }}>
+            ({attribute.verified_count} {attribute.verified_count === 1 ? "confirmation" : "confirmations"})
+          </span>
+        )}
       </div>
       {user && (
-        <div style={{ display: "flex", gap: "0.4em" }}>
-          <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("confirm")}>Confirm</button>
-          <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("dispute")}>Dispute</button>
+        <div style={{ display: "flex", gap: "0.4em", alignItems: "center" }}>
+          {isOwner ? (
+            <span className="muted" style={{ fontSize: "0.8rem", fontStyle: "italic" }}>
+              (Your submission)
+            </span>
+          ) : userAction === "confirm" ? (
+            <span style={{ fontSize: "0.8rem", color: "var(--color-primary-dark)", fontWeight: 600 }}>
+              ✓ Confirmed by you
+            </span>
+          ) : userAction === "dispute" ? (
+            <span style={{ fontSize: "0.8rem", color: "var(--color-danger)", fontWeight: 600 }}>
+              ⚠ Disputed by you
+            </span>
+          ) : (
+            <>
+              <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("confirm")}>Confirm</button>
+              <button className="btn-secondary" disabled={busy} onClick={() => handleVerify("dispute")}>Dispute</button>
+            </>
+          )}
         </div>
       )}
     </li>
@@ -70,6 +94,11 @@ function AccessPointCard({ accessPoint, placeId, onChanged }) {
     loadAttributes();
     ImagesAPI.list("access_point", accessPoint.id).then((res) => setImages(res.data.results || res.data));
   }, [accessPoint.id]);
+
+  function handleVerified() {
+    loadAttributes();
+    if (onChanged) onChanged();
+  }
 
   return (
     <div className="card" style={{ marginBottom: "1rem" }}>
@@ -103,7 +132,7 @@ function AccessPointCard({ accessPoint, placeId, onChanged }) {
               attribute={attr}
               placeId={placeId}
               accessPointId={accessPoint.id}
-              onVerified={loadAttributes}
+              onVerified={handleVerified}
             />
           ))}
         </ul>

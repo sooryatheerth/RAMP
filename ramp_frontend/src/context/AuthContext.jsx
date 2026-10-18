@@ -28,6 +28,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem("ramp_refresh_token", data.refresh);
     const me = await AuthAPI.me();
     setUser(me.data);
+    return me.data;
   }
 
   async function register(payload) {

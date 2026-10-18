@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   PlacesAPI, AccessPointsAPI, FacilitiesAPI,
-  AttributeDefinitionsAPI, ImagesAPI,
+  AttributeDefinitionsAPI, ImagesAPI, FacilityTypesAPI,
 } from "../api/client";
 
 const STEPS = ["Place details", "Main entrance", "Facilities (optional)", "Photo (optional)"];
@@ -44,6 +44,7 @@ export default function AddPlace() {
   // Step 3: facility
   const [addFacility, setAddFacility] = useState(false);
   const [facility, setFacility] = useState({ facility_type: "", floor_level: "", location_description: "", is_accessible: false });
+  const [facilityTypes, setFacilityTypes] = useState([]);
 
   // Step 4: photo (of the place itself)
   const [photoFile, setPhotoFile] = useState(null);
@@ -63,6 +64,7 @@ export default function AddPlace() {
     AttributeDefinitionsAPI.list({ applies_to: "access_point" }).then((res) =>
       setAttributeDefs(res.data.results || res.data)
     );
+    FacilityTypesAPI.list().then((res) => setFacilityTypes(res.data.results || res.data)).catch(() => {});
   }, []);
 
   // Run the nearby check whenever lat/lng are valid numbers.
@@ -401,16 +403,21 @@ export default function AddPlace() {
                   onChange={(e) => setFacility({ ...facility, facility_type: e.target.value })}
                 >
                   <option value="">Select a type</option>
-                  <option value="1">Restroom</option>
-                  <option value="2">Elevator</option>
-                  <option value="3">Parking</option>
-                  <option value="4">Ramp</option>
-                  <option value="5">Tactile Path</option>
-                  <option value="6">Braille Signage</option>
+                  {facilityTypes.length > 0
+                    ? facilityTypes.map((ft) => <option key={ft.id} value={ft.id}>{ft.name}</option>)
+                    : (
+                      // Fallback static options if API is unavailable
+                      <>
+                        <option value="1">Restroom</option>
+                        <option value="2">Elevator</option>
+                        <option value="3">Parking</option>
+                        <option value="4">Ramp</option>
+                        <option value="5">Tactile Path</option>
+                        <option value="6">Braille Signage</option>
+                      </>
+                    )
+                  }
                 </select>
-                <p className="muted" style={{ fontSize: "0.8rem" }}>
-                  (Loaded from your seeded facility types — IDs may vary; swap this for a live fetch in production.)
-                </p>
               </div>
               <div className="field">
                 <label htmlFor="f-floor">Floor level</label>

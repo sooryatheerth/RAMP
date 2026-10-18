@@ -6,6 +6,7 @@ from . import views
 router = routers.DefaultRouter()
 router.register("places", views.PlaceViewSet, basename="place")
 router.register("place-categories", views.PlaceCategoryViewSet, basename="place-category")
+router.register("facility-types", views.FacilityTypeViewSet, basename="facility-type")
 router.register("attribute-definitions", views.AttributeDefinitionViewSet, basename="attribute-definition")
 router.register("images", views.ImageViewSet, basename="image")
 
@@ -44,6 +45,9 @@ urlpatterns = [
     path("auth/login/", views.LoginView.as_view(), name="login"),
     path("auth/refresh/", views.RefreshView.as_view(), name="refresh"),
     path("auth/me/", views.MeView.as_view(), name="me"),
+    path("auth/change-password/", views.ChangePasswordView.as_view(), name="change-password"),
+    path("auth/my-places/", views.MyPlacesView.as_view(), name="my-places"),
+    path("auth/my-attributes/", views.MyAttributesView.as_view(), name="my-attributes"),
 
     path("images/<int:pk>/file/", views.ImageFileView.as_view(), name="image-file"),
     path("images/<int:pk>/thumb/", views.ImageThumbView.as_view(), name="image-thumb"),

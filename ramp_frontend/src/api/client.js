@@ -41,34 +41,32 @@ export const AuthAPI = {
   login: (payload) => api.post("/auth/login/", payload),
   me: () => api.get("/auth/me/"),
   updateMe: (payload) => api.patch("/auth/me/", payload),
+  changePassword: (payload) => api.post("/auth/change-password/", payload),
+  myPlaces: () => api.get("/auth/my-places/"),
+  myAttributes: () => api.get("/auth/my-attributes/"),
 };
 
 export const PlacesAPI = {
   list: (params) => api.get("/places/", { params }),
   detail: (id) => api.get(`/places/${id}/`),
   create: (payload) => api.post("/places/", payload),
+  update: (id, payload) => api.patch(`/places/${id}/`, payload),
+  delete: (id) => api.delete(`/places/${id}/`),
   score: (id) => api.get(`/places/${id}/score/`),
   categories: () => api.get("/place-categories/"),
-  // Check for existing buildings within radius metres of a coordinate.
-  // Used on the AddPlace form to prevent duplicate entries.
   nearby: (lat, lng, radius = 50) =>
     api.get("/places/nearby/", { params: { lat, lng, radius } }),
 };
 
 export const FacilityTypesAPI = {
-  // Fetch live facility types for the inline facility form
-  list: () => api.get("/attribute-definitions/", { params: { applies_to: "facility" } }),
-  // Convenience: fetch all facility types from the FacilityType model via admin or seeded data
-  // We re-use the facilities endpoint pattern — actual types come from the DB seed
-  facilityTypes: () => api.get("/place-categories/").then(() =>
-    // Fall back: the seeded facility types are fetched inline in the form component
-    Promise.resolve()
-  ),
+  list: () => api.get("/facility-types/"),
 };
 
 export const AccessPointsAPI = {
   list: (placeId) => api.get(`/places/${placeId}/access-points/`),
   create: (placeId, payload) => api.post(`/places/${placeId}/access-points/`, payload),
+  update: (placeId, apId, payload) => api.patch(`/places/${placeId}/access-points/${apId}/`, payload),
+  delete: (placeId, apId) => api.delete(`/places/${placeId}/access-points/${apId}/`),
   attributes: (placeId, apId) => api.get(`/places/${placeId}/access-points/${apId}/attributes/`),
   submitAttribute: (placeId, apId, payload) =>
     api.post(`/places/${placeId}/access-points/${apId}/attributes/`, payload),
@@ -79,6 +77,13 @@ export const AccessPointsAPI = {
 export const FacilitiesAPI = {
   list: (placeId) => api.get(`/places/${placeId}/facilities/`),
   create: (placeId, payload) => api.post(`/places/${placeId}/facilities/`, payload),
+  update: (placeId, facId, payload) => api.patch(`/places/${placeId}/facilities/${facId}/`, payload),
+  delete: (placeId, facId) => api.delete(`/places/${placeId}/facilities/${facId}/`),
+  attributes: (placeId, facId) => api.get(`/places/${placeId}/facilities/${facId}/attributes/`),
+  submitAttribute: (placeId, facId, payload) =>
+    api.post(`/places/${placeId}/facilities/${facId}/attributes/`, payload),
+  verifyAttribute: (placeId, facId, attrId, payload) =>
+    api.post(`/places/${placeId}/facilities/${facId}/attributes/${attrId}/verify/`, payload),
 };
 
 export const AttributeDefinitionsAPI = {
@@ -90,12 +95,11 @@ export const ImagesAPI = {
     api.get("/images/", { params: { entity_type: entityType, entity_id: entityId } }),
   upload: (formData) =>
     api.post("/images/", formData, { headers: { "Content-Type": "multipart/form-data" } }),
+  delete: (id) => api.delete(`/images/${id}/`),
   fileUrl: (id) => `/api/images/${id}/file/`,
   thumbUrl: (id) => `/api/images/${id}/thumb/`,
 };
 
-// Geocoding for the "search a location, click the map to add a place" flow.
-// Uses OpenStreetMap's Nominatim, consistent with the rest of the stack.
 export const GeocodeAPI = {
   search: (query) =>
     axios.get("https://nominatim.openstreetmap.org/search", {

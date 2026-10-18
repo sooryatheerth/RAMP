@@ -1,21 +1,33 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // If the user came from a protected page, redirect back there after login
+  const from = location.state?.from?.pathname;
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
-      await login(form.username, form.password);
-      navigate("/places");
+      const loggedInUser = await login(form.username, form.password);
+
+      // Determine where to send the user
+      if (from) {
+        navigate(from, { replace: true });
+      } else if (loggedInUser && (loggedInUser.is_staff || loggedInUser.user_type === "admin")) {
+        navigate("/admin", { replace: true });
+      } else {
+        navigate("/places", { replace: true });
+      }
     } catch (err) {
       setError("Username or password is incorrect.");
     } finally {
@@ -32,6 +44,7 @@ export default function Login() {
           <input
             id="username"
             required
+            autoComplete="username"
             value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })}
           />
@@ -42,6 +55,7 @@ export default function Login() {
             id="password"
             type="password"
             required
+            autoComplete="current-password"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />

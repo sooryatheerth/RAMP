@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import NavBar from "./components/NavBar";
 import Home from "./pages/Home";
@@ -8,11 +8,22 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AddPlace from "./pages/AddPlace";
 import Admin from "./pages/Admin";
+import Profile from "./pages/Profile";
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return null;
-  return user ? children : <Navigate to="/login" replace />;
+  return user ? children : <Navigate to="/login" state={{ from: location }} replace />;
+}
+
+function RequireAdmin({ children }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!user.is_staff && user.user_type !== "admin") return <Navigate to="/" replace />;
+  return children;
 }
 
 export default function App() {
@@ -26,7 +37,8 @@ export default function App() {
         <Route path="/places/:id" element={<PlaceDetail />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+        <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

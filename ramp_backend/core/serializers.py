@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
-    AttributeDefinition, Facility, FacilityAttribute, FacilityType,
+    AttributeDefinition, AttributeVerification, Facility, FacilityAttribute, FacilityType,
     Image, Place, PlaceCategory, User, UserAccessibilityProfile,
 )
 
@@ -74,6 +74,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 class PlaceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = PlaceCategory
+        fields = ["id", "name"]
+
+
+class FacilityTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FacilityType
         fields = ["id", "name"]
 
 
@@ -170,18 +176,31 @@ class AttributeDefinitionSerializer(serializers.ModelSerializer):
 
 class AccessPointAttributeSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source="attribute_definition.name", read_only=True)
+    submitted_by_username = serializers.CharField(source="submitted_by.username", read_only=True)
+    user_action = serializers.SerializerMethodField()
 
     class Meta:
         model = AccessPointAttribute
         fields = [
             "id", "access_point", "attribute_definition", "attribute_name",
             "value_boolean", "value_number", "value_text", "submitted_by",
+            "submitted_by_username", "user_action",
             "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
         read_only_fields = [
             "access_point", "submitted_by", "submitted_at", "verification_status",
             "verified_count", "last_verified_at",
         ]
+
+    def get_user_action(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return None
+        return AttributeVerification.objects.filter(
+            attribute_row_id=obj.id,
+            attribute_table="access_point",
+            verified_by=request.user,
+        ).values_list("action", flat=True).first()
 
     def create(self, validated_data):
         validated_data["submitted_by"] = self.context["request"].user
@@ -190,18 +209,31 @@ class AccessPointAttributeSerializer(serializers.ModelSerializer):
 
 class FacilityAttributeSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source="attribute_definition.name", read_only=True)
+    submitted_by_username = serializers.CharField(source="submitted_by.username", read_only=True)
+    user_action = serializers.SerializerMethodField()
 
     class Meta:
         model = FacilityAttribute
         fields = [
             "id", "facility", "attribute_definition", "attribute_name",
             "value_boolean", "value_number", "value_text", "submitted_by",
+            "submitted_by_username", "user_action",
             "submitted_at", "verification_status", "verified_count", "last_verified_at",
         ]
         read_only_fields = [
             "facility", "submitted_by", "submitted_at", "verification_status",
             "verified_count", "last_verified_at",
         ]
+
+    def get_user_action(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return None
+        return AttributeVerification.objects.filter(
+            attribute_row_id=obj.id,
+            attribute_table="facility",
+            verified_by=request.user,
+        ).values_list("action", flat=True).first()
 
     def create(self, validated_data):
         validated_data["submitted_by"] = self.context["request"].user
