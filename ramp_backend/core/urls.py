@@ -14,6 +14,7 @@ router.register("images", views.ImageViewSet, basename="image")
 places_router = routers.NestedDefaultRouter(router, "places", lookup="place")
 places_router.register("access-points", views.AccessPointViewSet, basename="place-access-points")
 places_router.register("facilities", views.FacilityViewSet, basename="place-facilities")
+places_router.register("reviews", views.PlaceReviewViewSet, basename="place-reviews")
 
 # /api/places/{place_pk}/access-points/{access_point_pk}/attributes/
 access_points_router = routers.NestedDefaultRouter(places_router, "access-points", lookup="access_point")
@@ -48,6 +49,8 @@ urlpatterns = [
     path("auth/change-password/", views.ChangePasswordView.as_view(), name="change-password"),
     path("auth/my-places/", views.MyPlacesView.as_view(), name="my-places"),
     path("auth/my-attributes/", views.MyAttributesView.as_view(), name="my-attributes"),
+    path("auth/saved-places/", views.SavedPlacesView.as_view(), name="saved-places"),
+    path("auth/saved-places/<int:place_id>/", views.SavedPlaceDetailView.as_view(), name="saved-place-detail"),
 
     path("images/<int:pk>/file/", views.ImageFileView.as_view(), name="image-file"),
     path("images/<int:pk>/thumb/", views.ImageThumbView.as_view(), name="image-thumb"),

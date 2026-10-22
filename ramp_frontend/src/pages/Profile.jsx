@@ -69,9 +69,20 @@ export default function Profile() {
   const [myAttrs, setMyAttrs] = useState([]);
   const [attrsLoading, setAttrsLoading] = useState(true);
 
+  // Saved places
+  const [savedPlaces, setSavedPlaces] = useState([]);
+  const [savedLoading, setSavedLoading] = useState(true);
+
   useEffect(() => {
     if (user) setForm({ first_name: user.first_name || "", last_name: user.last_name || "", email: user.email || "" });
   }, [user]);
+
+  function loadSavedPlaces() {
+    AuthAPI.savedPlaces()
+      .then((r) => setSavedPlaces(r.data.results || r.data))
+      .catch(() => {})
+      .finally(() => setSavedLoading(false));
+  }
 
   useEffect(() => {
     // Fetch user places & attributes
@@ -85,12 +96,24 @@ export default function Profile() {
       .catch(() => {})
       .finally(() => setAttrsLoading(false));
 
+    loadSavedPlaces();
+
     // Fetch gamification badges & tier
     GamificationAPI.myBadges()
       .then((r) => setBadgesData(r.data))
       .catch(() => {})
       .finally(() => setBadgesLoading(false));
   }, []);
+
+  async function handleRemoveSaved(placeId) {
+    try {
+      await AuthAPI.removeSavedPlace(placeId);
+      setSavedPlaces((prev) => prev.filter((item) => item.place?.id !== placeId));
+      toast.success("Place removed from bookmarks.");
+    } catch {
+      toast.error("Could not remove bookmark.");
+    }
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -429,6 +452,79 @@ export default function Profile() {
             {pwSaving ? "Changing…" : "Change password"}
           </button>
         </form>
+      </div>
+
+      {/* ── Saved Places / Bookmarks (Feature 5) ── */}
+      <div style={S.section}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div>
+            <h3 style={{ ...S.sectionTitle, margin: 0 }}>❤️ Saved Accessible Places</h3>
+            <p className="muted" style={{ margin: "0.2rem 0 0", fontSize: "0.85rem" }}>
+              Quick access to your bookmarked venues and personal navigation notes
+            </p>
+          </div>
+          <span className="muted" style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+            {savedPlaces.length} {savedPlaces.length === 1 ? "place" : "places"} saved
+          </span>
+        </div>
+
+        {savedLoading ? (
+          <p className="muted">Loading saved places…</p>
+        ) : savedPlaces.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+            <p className="muted" style={{ margin: 0 }}>You haven't bookmarked any accessible places yet.</p>
+            <Link to="/places">
+              <button className="btn-secondary" style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
+                Browse accessible places
+              </button>
+            </Link>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            {savedPlaces.map((item) => {
+              const p = item.place;
+              if (!p) return null;
+              return (
+                <div key={item.id} style={{ ...S.placeCard, padding: "0.9rem 1.1rem" }}>
+                  <div style={{ flex: 1, paddingRight: "1rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <Link to={`/places/${p.id}`} style={{ fontWeight: 700, fontSize: "1rem", textDecoration: "none", color: "var(--color-text)" }}>
+                        {p.name}
+                      </Link>
+                      <span className="muted" style={{ fontSize: "0.8rem" }}>· {p.category_name}</span>
+                    </div>
+                    <p className="muted" style={{ margin: "0.2rem 0 0", fontSize: "0.85rem" }}>
+                      {p.city ? `${p.city} · ` : ""}{p.address || ""}
+                    </p>
+                    {item.notes && (
+                      <p style={{ margin: "0.3rem 0 0", fontSize: "0.82rem", color: "var(--color-primary-dark)", fontStyle: "italic" }}>
+                        Note: {item.notes}
+                      </p>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                    <ConfidenceBadge score={p.overall_accessibility_score} />
+                    <button
+                      onClick={() => handleRemoveSaved(p.id)}
+                      title="Remove bookmark"
+                      aria-label="Remove bookmark"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--color-danger)",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        padding: "0.2rem",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── My places ── */}

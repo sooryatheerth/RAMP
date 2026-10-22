@@ -4,8 +4,8 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
     AttributeDefinition, AttributeVerification, Badge, Facility,
-    FacilityAttribute, FacilityType, Image, Place, PlaceCategory,
-    SystemConfig, User, UserAccessibilityProfile, UserBadge, VenueOwnerProfile,
+    FacilityAttribute, FacilityType, Image, Place, PlaceCategory, PlaceReview,
+    SavedPlace, SystemConfig, User, UserAccessibilityProfile, UserBadge, VenueOwnerProfile,
 )
 
 
@@ -31,6 +31,8 @@ admin.site.register(FacilityAttribute)
 admin.site.register(AttributeVerification)
 admin.site.register(Image)
 admin.site.register(SystemConfig)
+admin.site.register(PlaceReview)
+admin.site.register(SavedPlace)
 
 
 @admin.register(Badge)

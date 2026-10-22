@@ -50,6 +50,12 @@ export default function NavBar() {
             <span>🏆</span> Leaderboard
           </Link>
 
+          {user && (
+            <Link to="/profile" className="btn-link" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: "0.25em" }} title="My Saved Places">
+              <span>❤️</span> Saved
+            </Link>
+          )}
+
           {isAdmin && (
             <Link to="/admin" className="btn-link" style={{
               textDecoration: "none",
@@ -134,6 +140,7 @@ export default function NavBar() {
           )}
           {user ? (
             <>
+              <Link to="/profile" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>❤️ Saved places</Link>
               <Link to="/profile" className="btn-link" onClick={() => setMenuOpen(false)} style={{ textDecoration: "none" }}>👤 My profile</Link>
               <button className="btn-secondary" onClick={handleLogout}>Log out</button>
             </>

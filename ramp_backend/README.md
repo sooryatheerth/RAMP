@@ -55,6 +55,11 @@ python manage.py runserver
 | `/api/images/` | GET/POST | Upload/list images (multipart, enforces per-entity cap) |
 | `/api/images/{id}/file/` | GET | Full-resolution binary |
 | `/api/images/{id}/thumb/` | GET | Thumbnail binary |
+| `/api/places/{place_id}/reviews/` | GET/POST | Place accessibility reviews (filter: `?profile=&tag=`) |
+| `/api/places/{place_id}/reviews/stats/` | GET | Rating average, star distribution, and frequent topic tags |
+| `/api/places/{place_id}/reviews/{id}/helpful/` | POST | Vote a review as helpful |
+| `/api/places/{id}/bookmark/` | POST/DELETE | Save or remove a place from user bookmarks |
+| `/api/auth/saved-places/` | GET/POST | List and manage authenticated user's bookmarked places |
 | `/api/badges/` | GET | List all achievement badges and unlock criteria |
 | `/api/badges/my/` | GET | Current user badges, tier status, and milestones |
 | `/api/badges/milestones/` | GET | Contribution milestones roadmap with live progress |
