@@ -28,8 +28,13 @@ export default function AddPlace() {
 
   // Step 1: place
   const [place, setPlace] = useState({
-    name: "", category: "", description: "", address: "", city: "",
-    lat: prefilled?.lat ?? "", lng: prefilled?.lng ?? "",
+    name: prefilled?.name ?? "",
+    category: prefilled?.category ?? "",
+    description: prefilled?.description ?? "",
+    address: prefilled?.address ?? "",
+    city: prefilled?.city ?? "",
+    lat: prefilled?.lat ?? "",
+    lng: prefilled?.lng ?? "",
   });
 
   // Step 2: main access point + a couple of common attributes
@@ -184,13 +189,77 @@ export default function AddPlace() {
   const showNearbyWarning = nearbyPlaces.length > 0 && !nearbyDismissed && step === 0;
 
   return (
-    <main className="container" style={{ padding: "2rem 1.25rem", maxWidth: 560 }}>
-      <h1>Add a place</h1>
-      <p className="muted">
-        Step {step + 1} of {STEPS.length}: {STEPS[step]}
-      </p>
+    <main className="container" style={{ padding: "2.5rem 1.25rem 4rem", maxWidth: 620 }}>
+      {/* ── Wizard Header with Progress Bar ── */}
+      <div style={{ marginBottom: "1.75rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.5rem" }}>
+          <h1 style={{ margin: 0, fontSize: "1.75rem" }}>Add a Place</h1>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              fontWeight: 700,
+              color: "var(--color-primary-dark)",
+              background: "var(--color-primary-light)",
+              padding: "0.2em 0.7em",
+              borderRadius: "var(--radius-full)",
+              border: "1px solid var(--color-primary-border)",
+            }}
+          >
+            Step {step + 1} of {STEPS.length}
+          </span>
+        </div>
 
-      {error && <p className="error-text" role="alert">{error}</p>}
+        {/* Multi-step progress track */}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${STEPS.length}, 1fr)`, gap: "0.4rem", marginTop: "0.75rem" }}>
+          {STEPS.map((stepName, idx) => {
+            const isCompleted = idx < step;
+            const isCurrent = idx === step;
+            return (
+              <div key={stepName}>
+                <div
+                  style={{
+                    height: 5,
+                    borderRadius: 999,
+                    background: isCompleted || isCurrent ? "var(--color-primary)" : "var(--color-border)",
+                    boxShadow: isCurrent ? "0 0 8px rgba(15,118,110,0.4)" : "none",
+                    transition: "all 0.25s ease",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: isCurrent ? 700 : 500,
+                    color: isCurrent ? "var(--color-primary-dark)" : "var(--color-text-muted)",
+                    display: "block",
+                    marginTop: "0.35rem",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {idx + 1}. {stepName.split(" ")[0]}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {error && (
+        <div
+          style={{
+            padding: "0.6rem 0.85rem",
+            background: "var(--color-danger-light)",
+            border: "1px solid var(--color-danger-border)",
+            borderRadius: "var(--radius)",
+            marginBottom: "1rem",
+          }}
+        >
+          <p className="error-text" role="alert" style={{ margin: 0 }}>
+            {error}
+          </p>
+        </div>
+      )}
 
       {/* ── Duplicate Building Warning ────────────────────────────────────── */}
       {showNearbyWarning && (
