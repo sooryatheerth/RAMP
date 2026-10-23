@@ -69,7 +69,11 @@ export default function NavBar() {
           </Link>
 
           {user && (
+<<<<<<< HEAD:ramp_frontend/src/components/NavBar (1).jsx
             <Link to="/profile" style={navLinkStyle("/saved")} title="My Saved Places">
+=======
+            <Link to="/profile" className="btn-link" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: "0.25em" }} title="My Saved Places">
+>>>>>>> 7995f7c1c266e81b1dc645bfc312fc4ed0b08ca4:ramp_frontend/src/components/NavBar.jsx
               <span>❤️</span> Saved
             </Link>
           )}

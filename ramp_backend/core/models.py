@@ -8,6 +8,7 @@ will live in separate apps added later.
 import uuid
 from django.contrib.auth.models import AbstractUser
 from django.contrib.gis.db import models as gis_models
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -335,5 +336,74 @@ class UserBadge(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.badge.name}"
+
+
+# ---------------------------------------------------------------------------
+# Module 6: Reviews & Experiential Community Ratings
+# ---------------------------------------------------------------------------
+
+class PlaceReview(models.Model):
+    """Community accessibility experience review with profile context and tags."""
+    place = models.ForeignKey(Place, on_delete=models.CASCADE, related_name="reviews")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="place_reviews")
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        help_text="Accessibility rating from 1 (poor) to 5 (excellent)",
+    )
+    title = models.CharField(max_length=150, blank=True)
+    review_text = models.TextField()
+    accessibility_profile = models.ForeignKey(
+        AccessibilityProfile,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="profile_reviews",
+        help_text="Primary accessibility perspective this review was experienced from",
+    )
+    tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Quick feedback tags: e.g. ['Smooth ramp', 'Spacious restroom', 'Heavy door']",
+    )
+    visit_date = models.DateField(null=True, blank=True)
+    helpful_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("place", "user")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username}'s review of {self.place.name} ({self.rating}★)"
+
+
+class PlaceReviewHelpful(models.Model):
+    """Audit of helpful votes on reviews to prevent duplicate voting."""
+    review = models.ForeignKey(PlaceReview, on_delete=models.CASCADE, related_name="helpful_votes")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="helpful_review_votes")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("review", "user")
+
+
+# ---------------------------------------------------------------------------
+# Saved Places / Bookmarks
+# ---------------------------------------------------------------------------
+
+class SavedPlace(models.Model):
+    """User bookmarked accessible places for quick access and travel planning."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="saved_places")
+    place = models.ForeignKey(Place, on_delete=models.CASCADE, related_name="saved_by_users")
+    notes = models.CharField(max_length=255, blank=True, help_text="Personal user note (e.g. 'Enter from rear ramp')")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "place")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} saved {self.place.name}"
 
 

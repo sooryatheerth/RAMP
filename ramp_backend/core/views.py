@@ -15,7 +15,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .models import (
     AccessPoint, AccessPointAttribute, AttributeDefinition,
     AttributeVerification, Badge, Facility, FacilityAttribute, FacilityType, Image,
-    Place, PlaceCategory, SystemConfig, User, UserBadge, VerificationStatus,
+    Place, PlaceCategory, PlaceReview, PlaceReviewHelpful, SavedPlace, SystemConfig, User, UserBadge, VerificationStatus,
 )
 from .permissions import CanVerifySubmissions, IsOwnerOrReadOnly
 from .serializers import (
@@ -23,7 +23,8 @@ from .serializers import (
     AttributeDefinitionSerializer, BadgeSerializer, FacilityAttributeSerializer,
     FacilitySerializer, FacilityTypeSerializer, ImageMetaSerializer,
     ImageUploadSerializer, PlaceCategorySerializer, PlaceDetailSerializer,
-    PlaceListSerializer, RegisterSerializer, UserBadgeSerializer, UserSerializer,
+    PlaceListSerializer, PlaceReviewSerializer, RegisterSerializer, SavedPlaceSerializer,
+    UserBadgeSerializer, UserSerializer,
 )
 from .gamification import (
     REWARD_TIERS, evaluate_and_award_badges, get_leaderboard_data,
@@ -91,6 +92,27 @@ class MyAttributesView(generics.ListAPIView):
 
     def get_queryset(self):
         return AccessPointAttribute.objects.filter(submitted_by=self.request.user).order_by("-submitted_at")
+
+
+class SavedPlacesView(generics.ListCreateAPIView):
+    """GET/POST /api/auth/saved-places/ — list or save accessible bookmarks."""
+    serializer_class = SavedPlaceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return SavedPlace.objects.filter(user=self.request.user).select_related("place", "place__category")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class SavedPlaceDetailView(generics.DestroyAPIView):
+    """DELETE /api/auth/saved-places/{place_id}/ — remove bookmark."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, place_id=None):
+        SavedPlace.objects.filter(user=request.user, place_id=place_id).delete()
+        return Response({"detail": "Bookmark removed."}, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +227,11 @@ class PlaceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        near = self.request.query_params.get("near")   # "lat,lng"
-        radius_km = self.request.query_params.get("radius", "5")
-        q = self.request.query_params.get("q")
+        params = self.request.query_params
+
+        # Geolocation proximity filter
+        near = params.get("near")   # "lat,lng"
+        radius_km = params.get("radius", "5")
         if near:
             try:
                 lat, lng = (float(x) for x in near.split(","))
@@ -215,10 +239,54 @@ class PlaceViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(primary_location__distance_lte=(point, D(km=float(radius_km))))
             except (ValueError, TypeError):
                 pass
+
+        # Text search (name, city, address)
+        q = params.get("q")
         if q:
             from django.db.models import Q
             qs = qs.filter(Q(name__icontains=q) | Q(city__icontains=q) | Q(address__icontains=q))
-        return qs
+
+        # Advanced accessibility filters
+        min_score = params.get("min_score")
+        if min_score:
+            try:
+                qs = qs.filter(overall_accessibility_score__gte=float(min_score))
+            except ValueError:
+                pass
+
+        if params.get("has_accessible_entrance") == "true":
+            qs = qs.filter(access_points__is_accessible=True)
+
+        if params.get("has_accessible_restroom") == "true":
+            qs = qs.filter(facilities__facility_type__name__icontains="Restroom", facilities__is_accessible=True)
+
+        if params.get("has_elevator") == "true":
+            qs = qs.filter(facilities__facility_type__name__icontains="Elevator", facilities__is_accessible=True)
+
+        if params.get("has_ramp") == "true":
+            qs = qs.filter(facilities__facility_type__name__icontains="Ramp", facilities__is_accessible=True)
+
+        if params.get("verified_only") == "true":
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(access_points__attributes__verification_status=VerificationStatus.VERIFIED) |
+                Q(facilities__attributes__verification_status=VerificationStatus.VERIFIED)
+            )
+
+        # Sorting
+        sort_by = params.get("sort_by")
+        if sort_by == "score_desc":
+            qs = qs.order_by("-overall_accessibility_score")
+        elif sort_by == "score_asc":
+            qs = qs.order_by("overall_accessibility_score")
+        elif sort_by == "newest":
+            qs = qs.order_by("-created_at")
+        elif sort_by == "name":
+            qs = qs.order_by("name")
+        else:
+            qs = qs.order_by("-overall_accessibility_score", "-created_at")
+
+        return qs.distinct()
 
     def perform_create(self, serializer):
         place = serializer.save(added_by=self.request.user)
@@ -235,16 +303,204 @@ class PlaceViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def score(self, request, pk=None):
+        """Transparent, inspectable accessibility score breakdown."""
         place = self.get_object()
         update_place_accessibility_score(place)
         place.refresh_from_db()
-        access_points = place.access_points.all()
-        total = access_points.count()
-        accessible = access_points.filter(is_accessible=True).count()
+
+        access_points = list(place.access_points.prefetch_related("attributes").all())
+        facilities = list(place.facilities.prefetch_related("attributes").all())
+
+        # 1. Entrance accessibility breakdown (0-35)
+        total_ap = len(access_points)
+        accessible_ap = sum(1 for ap in access_points if ap.is_accessible)
+        has_primary = any(ap.is_accessible and ap.is_primary_accessible_entrance for ap in access_points)
+        if has_primary:
+            entrance_points = 35.0
+            entrance_status = "Primary entrance is certified fully accessible (+35 pts)"
+        elif accessible_ap > 0:
+            entrance_points = 25.0
+            entrance_status = f"{accessible_ap} of {total_ap} entrances marked accessible (+25 pts)"
+        elif total_ap > 0:
+            entrance_points = 5.0
+            entrance_status = "No entrances marked accessible (+5 baseline)"
+        else:
+            entrance_points = 15.0
+            entrance_status = "Entrance data pending mapping (+15 baseline)"
+
+        # 2. Attributes breakdown (0-50)
+        all_attrs = []
+        for ap in access_points:
+            all_attrs.extend(ap.attributes.all())
+        for f in facilities:
+            all_attrs.extend(f.attributes.all())
+
+        total_attrs = len(all_attrs)
+        verified_attrs = sum(1 for a in all_attrs if a.verification_status == VerificationStatus.VERIFIED)
+        pending_attrs = sum(1 for a in all_attrs if a.verification_status == VerificationStatus.PENDING)
+        disputed_attrs = sum(1 for a in all_attrs if a.verification_status in (VerificationStatus.DISPUTED, VerificationStatus.REJECTED))
+
+        if total_attrs > 0:
+            verified_ratio = round(verified_attrs / total_attrs, 2)
+            disputed_ratio = round(disputed_attrs / total_attrs, 2)
+            attr_points = max(0.0, (verified_ratio * 50.0) - (disputed_ratio * 25.0))
+            attr_status = f"{verified_attrs} verified of {total_attrs} submitted structured attributes"
+        else:
+            verified_ratio = 0.0
+            disputed_ratio = 0.0
+            attr_points = 20.0 if accessible_ap > 0 else 0.0
+            attr_status = "No detailed accessibility attributes recorded yet"
+
+        # 3. Facilities breakdown (0-15)
+        total_fac = len(facilities)
+        accessible_fac = sum(1 for f in facilities if f.is_accessible)
+        accessible_types = [f.facility_type.name for f in facilities if f.is_accessible]
+        if total_fac > 0:
+            facility_points = round((accessible_fac / total_fac) * 15.0, 1)
+            facility_status = f"{accessible_fac} of {total_fac} amenities are accessible"
+        else:
+            facility_points = 15.0 if (accessible_ap > 0 and (not all_attrs or verified_attrs > 0)) else 0.0
+            facility_status = "No interior amenities mapped yet"
+
+        recommendations = []
+        if pending_attrs > 0:
+            recommendations.append(f"Peer-confirm the {pending_attrs} pending attribute(s) to verify data accuracy.")
+        if total_ap == 0:
+            recommendations.append("Map at least one access entrance to confirm building accessibility.")
+        elif accessible_ap == 0:
+            recommendations.append("Check if an accessible alternative entrance or ramp exists.")
+        if not any("restroom" in f.facility_type.name.lower() for f in facilities):
+            recommendations.append("Tag restroom facilities to record wheelchair washroom availability.")
+        if not any("elevator" in f.facility_type.name.lower() for f in facilities):
+            recommendations.append("Map elevators or step-free level connections if multi-story.")
+
         return Response({
-            "overall_accessibility_score": place.overall_accessibility_score,
-            "access_points_total": total,
-            "access_points_accessible": accessible,
+            "overall_accessibility_score": float(place.overall_accessibility_score),
+            "entrance": {
+                "score": entrance_points,
+                "max": 35,
+                "total": total_ap,
+                "accessible": accessible_ap,
+                "has_primary": has_primary,
+                "description": entrance_status,
+            },
+            "attributes": {
+                "score": round(attr_points, 1),
+                "max": 50,
+                "total": total_attrs,
+                "verified": verified_attrs,
+                "pending": pending_attrs,
+                "disputed": disputed_attrs,
+                "verified_ratio": verified_ratio,
+                "description": attr_status,
+            },
+            "facilities": {
+                "score": facility_points,
+                "max": 15,
+                "total": total_fac,
+                "accessible": accessible_fac,
+                "accessible_types": accessible_types,
+                "description": facility_status,
+            },
+            "recommendations": recommendations,
+        })
+
+    @action(detail=True, methods=["post", "delete"], permission_classes=[permissions.IsAuthenticated])
+    def bookmark(self, request, pk=None):
+        """Toggle saving/bookmarking a place for quick access."""
+        place = self.get_object()
+        if request.method == "POST":
+            notes = request.data.get("notes", "")
+            saved, created = SavedPlace.objects.get_or_create(
+                user=request.user, place=place, defaults={"notes": notes}
+            )
+            if not created and notes:
+                saved.notes = notes
+                saved.save(update_fields=["notes"])
+            return Response({"is_saved": True, "notes": saved.notes, "message": "Place saved to your bookmarks."})
+        else:
+            SavedPlace.objects.filter(user=request.user, place=place).delete()
+            return Response({"is_saved": False, "message": "Bookmark removed."})
+
+
+class PlaceReviewViewSet(viewsets.ModelViewSet):
+    """Community accessibility reviews with profile context, tags, and helpfulness voting."""
+    serializer_class = PlaceReviewSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        place_pk = self.kwargs.get("place_pk")
+        qs = PlaceReview.objects.filter(place_id=place_pk).select_related(
+            "user", "accessibility_profile", "place"
+        )
+        profile_code = self.request.query_params.get("profile")
+        if profile_code:
+            qs = qs.filter(accessibility_profile__code=profile_code)
+        tag = self.request.query_params.get("tag")
+        if tag:
+            qs = qs.filter(tags__contains=[tag])
+        return qs
+
+    def perform_create(self, serializer):
+        place_pk = self.kwargs.get("place_pk")
+        place = Place.objects.get(pk=place_pk)
+        serializer.save(place=place, user=self.request.user)
+        evaluate_and_award_badges(self.request.user)
+
+    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    def helpful(self, request, place_pk=None, pk=None):
+        review = self.get_object()
+        vote = PlaceReviewHelpful.objects.filter(review=review, user=request.user).first()
+        if vote:
+            vote.delete()
+            review.helpful_count = max(0, review.helpful_count - 1)
+            review.save(update_fields=["helpful_count"])
+            has_voted = False
+        else:
+            PlaceReviewHelpful.objects.create(review=review, user=request.user)
+            review.helpful_count += 1
+            review.save(update_fields=["helpful_count"])
+            has_voted = True
+        return Response({
+            "helpful_count": review.helpful_count,
+            "has_voted_helpful": has_voted,
+        })
+
+    @action(detail=False, methods=["get"])
+    def stats(self, request, place_pk=None):
+        reviews = PlaceReview.objects.filter(place_id=place_pk)
+        total = reviews.count()
+        if total == 0:
+            return Response({
+                "average_rating": 0,
+                "total_reviews": 0,
+                "rating_distribution": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+                "top_tags": [],
+                "profile_counts": {},
+            })
+        from django.db.models import Avg, Count
+        avg = reviews.aggregate(Avg("rating"))["rating__avg"] or 0
+        dist = {i: 0 for i in range(1, 6)}
+        for r in reviews.values("rating").annotate(count=Count("id")):
+            dist[r["rating"]] = r["count"]
+
+        tag_counts = {}
+        profile_counts = {}
+        for rev in reviews:
+            for t in rev.tags:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+            if rev.accessibility_profile:
+                lbl = rev.accessibility_profile.label
+                profile_counts[lbl] = profile_counts.get(lbl, 0) + 1
+
+        top_tags = sorted([{"tag": k, "count": v} for k, v in tag_counts.items()], key=lambda x: -x["count"])[:8]
+
+        return Response({
+            "average_rating": round(float(avg), 1),
+            "total_reviews": total,
+            "rating_distribution": dist,
+            "top_tags": top_tags,
+            "profile_counts": profile_counts,
         })
 
 

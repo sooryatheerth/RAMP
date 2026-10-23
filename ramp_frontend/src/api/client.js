@@ -44,6 +44,9 @@ export const AuthAPI = {
   changePassword: (payload) => api.post("/auth/change-password/", payload),
   myPlaces: () => api.get("/auth/my-places/"),
   myAttributes: () => api.get("/auth/my-attributes/"),
+  savedPlaces: () => api.get("/auth/saved-places/"),
+  savePlace: (placeId, notes = "") => api.post("/auth/saved-places/", { place_id: placeId, notes }),
+  removeSavedPlace: (placeId) => api.delete(`/auth/saved-places/${placeId}/`),
 };
 
 export const PlacesAPI = {
@@ -53,6 +56,8 @@ export const PlacesAPI = {
   update: (id, payload) => api.patch(`/places/${id}/`, payload),
   delete: (id) => api.delete(`/places/${id}/`),
   score: (id) => api.get(`/places/${id}/score/`),
+  bookmark: (id, notes = "") => api.post(`/places/${id}/bookmark/`, { notes }),
+  removeBookmark: (id) => api.delete(`/places/${id}/bookmark/`),
   categories: () => api.get("/place-categories/"),
   nearby: (lat, lng, radius = 50) =>
     api.get("/places/nearby/", { params: { lat, lng, radius } }),
@@ -113,4 +118,13 @@ export const GamificationAPI = {
   milestones: () => api.get("/badges/milestones/"),
   tiers: () => api.get("/badges/tiers/"),
   leaderboard: (params) => api.get("/leaderboard/", { params }),
+};
+
+export const ReviewsAPI = {
+  list: (placeId, params) => api.get(`/places/${placeId}/reviews/`, { params }),
+  stats: (placeId) => api.get(`/places/${placeId}/reviews/stats/`),
+  create: (placeId, payload) => api.post(`/places/${placeId}/reviews/`, payload),
+  update: (placeId, reviewId, payload) => api.patch(`/places/${placeId}/reviews/${reviewId}/`, payload),
+  delete: (placeId, reviewId) => api.delete(`/places/${placeId}/reviews/${reviewId}/`),
+  helpful: (placeId, reviewId) => api.post(`/places/${placeId}/reviews/${reviewId}/helpful/`),
 };

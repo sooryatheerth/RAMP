@@ -6,7 +6,7 @@ from rest_framework import serializers
 from .models import (
     AccessibilityProfile, AccessPoint, AccessPointAttribute,
     AttributeDefinition, AttributeVerification, Badge, Facility, FacilityAttribute, FacilityType,
-    Image, Place, PlaceCategory, User, UserAccessibilityProfile, UserBadge,
+    Image, Place, PlaceCategory, PlaceReview, PlaceReviewHelpful, SavedPlace, User, UserAccessibilityProfile, UserBadge,
 )
 
 
@@ -139,26 +139,64 @@ class FacilitySerializer(serializers.ModelSerializer):
 
 
 class PlaceListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for map/list views."""
+    """Lightweight serializer for map/list views with traits, rating, and bookmark status."""
     primary_location = PointField()
     category_name = serializers.CharField(source="category.name", read_only=True)
+    is_saved = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    reviews_count = serializers.SerializerMethodField()
+    has_accessible_entrance = serializers.SerializerMethodField()
+    has_accessible_restroom = serializers.SerializerMethodField()
+    has_elevator = serializers.SerializerMethodField()
+    has_ramp = serializers.SerializerMethodField()
 
     class Meta:
         model = Place
         fields = [
             "id", "name", "category", "category_name", "primary_location",
-            "description", "city", "overall_accessibility_score",
+            "description", "address", "city", "overall_accessibility_score",
+            "is_saved", "average_rating", "reviews_count",
+            "has_accessible_entrance", "has_accessible_restroom", "has_elevator", "has_ramp",
         ]
+
+    def get_is_saved(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return obj.saved_by_users.filter(user=request.user).exists()
+
+    def get_average_rating(self, obj):
+        from django.db.models import Avg
+        avg = obj.reviews.aggregate(Avg("rating"))["rating__avg"]
+        return round(float(avg), 1) if avg else None
+
+    def get_reviews_count(self, obj):
+        return obj.reviews.count()
+
+    def get_has_accessible_entrance(self, obj):
+        return obj.access_points.filter(is_accessible=True).exists()
+
+    def get_has_accessible_restroom(self, obj):
+        return obj.facilities.filter(facility_type__name__icontains="Restroom", is_accessible=True).exists()
+
+    def get_has_elevator(self, obj):
+        return obj.facilities.filter(facility_type__name__icontains="Elevator", is_accessible=True).exists()
+
+    def get_has_ramp(self, obj):
+        return obj.facilities.filter(facility_type__name__icontains="Ramp", is_accessible=True).exists()
 
 
 class PlaceDetailSerializer(serializers.ModelSerializer):
-    """Full serializer including nested access points and facilities."""
+    """Full serializer including nested access points, facilities, reviews summary, and saved status."""
     primary_location = PointField()
     category_name = serializers.CharField(source="category.name", read_only=True)
     added_by_username = serializers.CharField(source="added_by.username", read_only=True)
     added_by_tier = serializers.SerializerMethodField()
     access_points = AccessPointSerializer(many=True, read_only=True)
     facilities = FacilitySerializer(many=True, read_only=True)
+    is_saved = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    reviews_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Place
@@ -166,10 +204,28 @@ class PlaceDetailSerializer(serializers.ModelSerializer):
             "id", "name", "category", "category_name", "primary_location",
             "description", "address", "city", "added_by", "added_by_username", "added_by_tier",
             "claimed_by_venue", "overall_accessibility_score", "access_points", "facilities",
+            "is_saved", "average_rating", "reviews_count",
             "created_at", "updated_at",
         ]
-        read_only_fields = ["added_by", "added_by_username", "added_by_tier", "claimed_by_venue",
-                             "overall_accessibility_score", "created_at", "updated_at"]
+        read_only_fields = [
+            "added_by", "added_by_username", "added_by_tier", "claimed_by_venue",
+            "overall_accessibility_score", "is_saved", "average_rating", "reviews_count",
+            "created_at", "updated_at",
+        ]
+
+    def get_is_saved(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return obj.saved_by_users.filter(user=request.user).exists()
+
+    def get_average_rating(self, obj):
+        from django.db.models import Avg
+        avg = obj.reviews.aggregate(Avg("rating"))["rating__avg"]
+        return round(float(avg), 1) if avg else None
+
+    def get_reviews_count(self, obj):
+        return obj.reviews.count()
 
     def get_added_by_tier(self, obj):
         if obj.added_by:
@@ -180,6 +236,86 @@ class PlaceDetailSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["added_by"] = self.context["request"].user
         return super().create(validated_data)
+
+
+# ---------------------------------------------------------------------------
+# Module 6: Place Reviews Serializers
+# ---------------------------------------------------------------------------
+
+class PlaceReviewSerializer(serializers.ModelSerializer):
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    user_tier = serializers.SerializerMethodField()
+    accessibility_profile_label = serializers.CharField(source="accessibility_profile.label", read_only=True)
+    is_my_review = serializers.SerializerMethodField()
+    has_voted_helpful = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlaceReview
+        fields = [
+            "id", "place", "user", "user_username", "user_tier",
+            "rating", "title", "review_text", "accessibility_profile",
+            "accessibility_profile_label", "tags", "visit_date",
+            "helpful_count", "has_voted_helpful", "is_my_review",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "id", "place", "user", "user_username", "user_tier",
+            "accessibility_profile_label", "helpful_count", "has_voted_helpful",
+            "is_my_review", "created_at", "updated_at",
+        ]
+
+    def get_user_tier(self, obj):
+        if obj.user:
+            from .gamification import get_user_reward_tier
+            return get_user_reward_tier(obj.user.reputation_score)
+        return None
+
+    def get_is_my_review(self, obj):
+        request = self.context.get("request")
+        return bool(request and request.user and request.user.is_authenticated and obj.user_id == request.user.id)
+
+    def get_has_voted_helpful(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return PlaceReviewHelpful.objects.filter(review=obj, user=request.user).exists()
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        validated_data["user"] = request.user
+        review = super().create(validated_data)
+
+        # Award contributor reputation (+5 points for an accessibility review)
+        if request.user and request.user.is_authenticated:
+            request.user.reputation_score += 5
+            request.user.save(update_fields=["reputation_score"])
+
+        return review
+
+
+# ---------------------------------------------------------------------------
+# Saved Places Serializer
+# ---------------------------------------------------------------------------
+
+class SavedPlaceSerializer(serializers.ModelSerializer):
+    place = PlaceListSerializer(read_only=True)
+    place_id = serializers.PrimaryKeyRelatedField(
+        queryset=Place.objects.all(), source="place", write_only=True
+    )
+
+    class Meta:
+        model = SavedPlace
+        fields = ["id", "place", "place_id", "notes", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def create(self, validated_data):
+        user = self.context["request"].user
+        saved, _ = SavedPlace.objects.get_or_create(
+            user=user,
+            place=validated_data["place"],
+            defaults={"notes": validated_data.get("notes", "")}
+        )
+        return saved
 
 
 # ---------------------------------------------------------------------------
